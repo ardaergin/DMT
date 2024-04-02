@@ -1,0 +1,42 @@
+---
+title: "Mood"
+author: "Arda Ergin"
+date: "2024-04-02"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(tidyr)
+```
+
+
+```{r}
+data_raw <- read.csv("data.csv")
+unique(data_raw$variable)
+unique(data_raw$id)
+
+
+
+wide_data <- tidyr::pivot_wider(data_raw, names_from = variable, values_from = value)
+
+
+data_raw <- data_raw %>% mutate(
+  ID_new = dplyr::recode(as.numeric(strsplit(id, split = '\\.')[[1]][2])))
+
+data_raw <- data_raw %>%
+  mutate(numeric_ID = map_dbl(strsplit(ID, split = '\\.'), function(x) as.numeric(x[2])))
+
+data_raw <- data_raw %>%
+  mutate(ID_new = as.numeric(sapply(strsplit(id, split = '\\.'), function(x) x[2])))
+
+
+```
+
+
+```{r}
+data_1 <- wide_data %>% filter(id == "AS14.01")
+data_1
+```
+
+
