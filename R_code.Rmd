@@ -5,38 +5,53 @@ date: "2024-04-02"
 output: html_document
 ---
 
+# Setup
 ```{r}
 library(dplyr)
 library(tidyr)
 ```
 
-
 ```{r}
 data_raw <- read.csv("data.csv")
+```
+
+# Start
+
+How many variables and how many participants?
+```{r}
 unique(data_raw$variable)
 unique(data_raw$id)
-
-
-
-wide_data <- tidyr::pivot_wider(data_raw, names_from = variable, values_from = value)
-
-
-data_raw <- data_raw %>% mutate(
-  ID_new = dplyr::recode(as.numeric(strsplit(id, split = '\\.')[[1]][2])))
-
-data_raw <- data_raw %>%
-  mutate(numeric_ID = map_dbl(strsplit(ID, split = '\\.'), function(x) as.numeric(x[2])))
-
-data_raw <- data_raw %>%
-  mutate(ID_new = as.numeric(sapply(strsplit(id, split = '\\.'), function(x) x[2])))
-
-
 ```
 
+Some Fixes:
+```{r}
+# Getting a better ID column:
+data_0 <- data_raw %>%
+  mutate(ID = as.numeric(sapply(
+    strsplit(id, split = '\\.'), function(x) x[2])))
 
+# Changing the name for the "X" variable
+colnames(data_0)[1] <- "obs_number"
+
+# Getting rid of the 
+data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
+```
+
+Long to Wide Transformation:
+```{r}
+wide_data <- tidyr::pivot_wider(
+  data_0, 
+  names_from = variable, 
+  values_from = value)
+```
+
+Looking at Just one Individual
 ```{r}
 data_1 <- wide_data %>% filter(id == "AS14.01")
-data_1
 ```
 
+# Outliers
+```{r}
+boxplot(wide_data$appCat.game, breaks = 10000)
+```
 
