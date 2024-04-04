@@ -50,8 +50,35 @@ Looking at Just one Individual
 data_1 <- wide_data %>% filter(id == "AS14.01")
 ```
 
-# Outliers
+# Investigating Variables
+## mood
 ```{r}
-boxplot(wide_data$appCat.game, breaks = 10000)
+hist(wide_data$mood, breaks = 10)
 ```
+
+## circumplex.arousal
+```{r}
+par(mfrow = c(1,2))
+hist(wide_data$circumplex.arousal); hist(wide_data$circumplex.valence)
+```
+
+
+## appCat.game
+```{r}
+gamers <- wide_data %>% filter(appCat.game > 300)
+hist(log(wide_data$appCat.game), breaks = 100)
+boxplot(log(wide_data$appCat.game))
+```
+
+
+## appCat.game
+
+```{r}
+max(wide_data$appCat.game)
+summary(wide_data$sms)
+```
+
+
+
+
 
