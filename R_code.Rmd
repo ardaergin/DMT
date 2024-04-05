@@ -9,6 +9,9 @@ output: html_document
 ```{r}
 library(dplyr)
 library(tidyr)
+library(ggplot2)
+library(patchwork)
+library(scales)
 ```
 
 ```{r}
@@ -43,23 +46,182 @@ wide_data <- tidyr::pivot_wider(
   data_0, 
   names_from = variable, 
   values_from = value)
+
+data <- as.data.frame(wide_data)
 ```
 
 Looking at Just one Individual
 ```{r}
-data_1 <- wide_data %>% filter(id == "AS14.01")
+data_id_1 <- data %>% filter(id == "AS14.01")
 ```
 
+
+
+
+
+
+
 # Investigating Variables
-## mood
+## time
 ```{r}
-hist(wide_data$mood, breaks = 10)
+# Checking if there is any NAs in the `time` variable
+any(is.na(data$time))
+
+# Transforming the variable into an time variable:
+data <- data %>% mutate(
+  time_t = as.POSIXct(
+    as.character(time), 
+    format="%Y-%m-%d %H:%M:%OS"))
+
+# Quick Summary
+summary(data$time_t)
+
+# Histogram
+data %>% ggplot(aes(x = time_t)) + 
+  geom_histogram(bins = 100, color = "black", fill = "darkgreen") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observation Times", 
+       x = "Date-Time", 
+       y = "Frequency") +
+  # Rotating x-axis labels for better readability:
+  theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
+  scale_x_datetime(date_breaks = "2 weeks", date_labels = "%d %b %Y")
 ```
+
+
+
+## Mood
+```{r}
+# Quick Summary
+summary(wide_data$mood)
+table(wide_data$mood)
+
+# Histogram
+data %>% ggplot(aes(x = mood)) + 
+  geom_histogram(bins = 10, color = "black", fill = "firebrick") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Mood Observations", 
+       x = "Mood", 
+       y = "Frequency")
+```
+
+```{r}
+mood_summary <- data %>%
+  group_by(ID) %>%
+  summarise(mean_mood = mean(mood, na.rm = TRUE),
+            median_mood = median(mood, na.rm = TRUE),
+            sd_mood = sd(mood, na.rm = TRUE),
+            max_mood = max(mood, na.rm = TRUE),
+            min_mood = min(mood, na.rm = TRUE))
+mood_summary
+```
+
+Important the understand our DV, so good to summarize is for each participant.        
+- Overall, there does not seem to be much of a difference between the individuals in terms of their mean and median.
+- On the other hand, mood fluctuations are not the same for all individuals, and there might be individuals who experience more fluctuations.
+
+```{r}
+for (participant in unique(data$ID)) {
+  moods <- data %>%
+    filter(!is.na(mood))
+  
+  mood <- moods %>% filter(ID == participant)
+  
+  p <- mood %>% ggplot(
+    aes(x = time_t, 
+        y = mood)) +
+    geom_line(color = colors()[sample(8:length(colors()),1)]) + 
+    scale_y_continuous(limits = c(1, 10)) +
+    theme_classic(base_family = "Times") + 
+    theme(legend.position = "none") +
+    labs(title = paste(
+      "Mood Over Time for Participant Number", 
+      participant), 
+         x = "Time", 
+         y = "Mood")
+  
+  print(p)
+}
+colors()
+```
+
+Participant number 7 have too much fluctuations and can be considered an outlier among the other participants. It might possibly be a good idea to exclude them. Maybe also participant number 33.
+
+```{r}
+# Creating a new variable in our "mood_summary" 
+# Putting the ID to the column if the participant is an outlier 
+# FROM: https://www.r-bloggers.com/2022/08/how-to-label-outliers-in-boxplots-in-ggplot2/
+find_outlier <- function(x) {
+  return(x < quantile(x, .25) - 1.5*IQR(x) | x > quantile(x, .75) + 1.5*IQR(x))
+}
+
+mood_summary <- mood_summary %>%
+  mutate(outlier = ifelse(find_outlier(sd_mood), ID, NA))
+
+mood_summary %>% ggplot(aes(x = "", y = sd_mood)) +
+  geom_boxplot(color = "firebrick") +
+  theme_classic() +
+  labs(title = "Boxplot of Standard Deviation of Mood",
+       y = "Standard Deviation of Mood",
+       x = "") + 
+  geom_text(aes(label=outlier), na.rm=TRUE, hjust=-1)
+```
+
+Although, it needs to be noted that individuals who have depression will show these mood fluctuations. If we assume that this sample is a representative sample, considering the $10-20\%$ prevalance, we should expect around $2-4$ individuals that are displaying such patterns. Hence, it is a question whether this should actually be considered as an "anomaly". 
+
+
+## Arousal & Valence
+```{r}
+# Quick Summary: Arousal
+summary(data$circumplex.arousal)
+table(data$circumplex.arousal)
+
+# Quick Summary: Valence
+summary(data$circumplex.valence)
+table(data$circumplex.valence)
+
+# Histograms & Combining Them
+hist_arousal <- data %>% ggplot(aes(x = circumplex.arousal)) + 
+  geom_histogram(bins = 5, color = "black", fill = "deepskyblue2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Arousal", 
+       x = "Arousal", 
+       y = "Frequency")
+
+hist_valence <- data %>% ggplot(aes(x = circumplex.valence)) + 
+  geom_histogram(bins = 5, color = "black", fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Valence", 
+       x = "Valence", 
+       y = "Frequency")
+
+# Doing layout for ggpplot2:
+(hist_arousal | hist_valence) + 
+  patchwork::plot_layout(ncol = 2)
+```
+
 
 ## circumplex.arousal
 ```{r}
-par(mfrow = c(1,2))
-hist(wide_data$circumplex.arousal); hist(wide_data$circumplex.valence)
+hist(wide_data$circumplex.arousal)
+summary(wide_data$circumplex.arousal)
+table(wide_data$circumplex.arousal)
+```
+
+## circumplex.valence
+```{r}
+hist(wide_data$circumplex.valence)
+summary(wide_data$circumplex.valence)
+table(wide_data$circumplex.valence)
+
+names(wide_data)
+```
+
+
+```{r}
+hist(log(wide_data$activity))
+summary(wide_data$activity)
+qqnorm(log(wide_data$activity))
 ```
 
 
@@ -77,6 +239,9 @@ boxplot(log(wide_data$appCat.game))
 max(wide_data$appCat.game)
 summary(wide_data$sms)
 ```
+
+
+
 
 
 
