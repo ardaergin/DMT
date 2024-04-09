@@ -113,7 +113,7 @@ data <- data %>%
 ### Visual: Entire Time
 ```{r}
 # Histogram
-data %>% ggplot(aes(x = time_t)) + 
+data %>% ggplot(aes(x = date_time)) + 
   geom_histogram(bins = 100, 
                  color = "black", 
                  fill = "purple2") +
@@ -128,6 +128,13 @@ data %>% ggplot(aes(x = time_t)) +
     date_breaks = "2 weeks", 
     date_labels = "%d %b %Y")
 ```
+
+### Visual: Weekdays
+```{r}
+hist((data$hour))
+
+```
+
 
 ### Visual: Weekdays
 ```{r}
@@ -209,22 +216,6 @@ week_summary %>%
 ```
 
 
-```{r}
-x <- data %>%
-  mutate(
-    time_t = as.POSIXct(as.character(time), format="%Y-%m-%d %H:%M:%OS"),
-    time_only = format(time_t, "%H:%M:%S"),
-    seconds_since_midnight = hour(time_t) * 3600 + minute(time_t) * 60 + second(time_t)
-  )
-
-# Now you can create a histogram of `seconds_since_midnight`
-hist(x$seconds_since_midnight, breaks=24, main="Distribution of Time Throughout the Day",
-     xlab="Seconds Since Midnight", ylab="Frequency")
-
-```
-
-
-
 ## Mood
 ```{r}
 # Quick Summary
@@ -263,7 +254,7 @@ for (participant in unique(data$ID)) {
   mood <- moods %>% filter(ID == participant)
   
   p <- mood %>% ggplot(
-    aes(x = time_t, 
+    aes(x = date_time, 
         y = mood)) +
     geom_line(color = colors()[sample(8:length(colors()),1)]) + 
     scale_y_continuous(limits = c(1, 10)) +
@@ -377,6 +368,47 @@ max(wide_data$appCat.game)
 summary(wide_data$sms)
 ```
 
+## activity
+```{r}
+# Summarizing Per Weekday
+hour_activity <- data %>%
+  group_by(hour) %>%
+  summarise(
+    mean_act = mean(activity, na.rm = TRUE),
+    sd_act = sd(activity, na.rm = TRUE),
+    n = sum(!is.na(activity)),
+    sem = sd_act / sqrt(n),
+    ci_lower = mean_act - qnorm(0.975) * sem,
+    ci_upper = mean_act + qnorm(0.975) * sem
+  )
+
+# Bar Plot
+hour_activity %>%
+  ggplot(aes(
+    x = hour, 
+    y = mean_act)) + 
+  geom_col(color = "black", 
+           fill = "skyblue") +
+  geom_errorbar(aes(ymin = ci_lower, 
+                    ymax = ci_upper), 
+                width = .2) +  
+  geom_text(aes(
+    label = n, 
+    y = mean_mood + 0.02), 
+    vjust = -5.5,
+    family = "Times New Roman") + 
+  theme_classic(base_family = "Times") +
+  labs(
+    title = "Mean Mood per Week of the Year",
+    x = "Week of the Year",
+    y = "Mean Mood"
+  ) + 
+  coord_cartesian(ylim = c(6,7.6))
+  
+```
+
+
+
 
 # Data Analysis
 
@@ -394,6 +426,57 @@ data$appCat.social
 
 x <- lm(variable_mean ~ variable_sum, data = new_data)
 summary(x)
+```
+
+
+## New Variable: Time of Observation
+```{r}
+a <- data %>% 
+  mutate(
+    adjusted_date_time = if_else(
+      hour(date_time) < 4, date_time - days(1), date_time),
+    adjusted_date = as.Date(adjusted_date_time)
+  )
+
+# Group by participant and adjusted_date to find the last observation for each day
+a <- a %>%
+  group_by(id, adjusted_date) %>%
+  mutate(last_observation_time = max(date_time)) %>%
+  ungroup()
+
+
+x_2 <- x %>% filter(date == "2014-02-26")
+```
+
+
+```{r}
+
+data
+
+
+dataa <- data %>% filter(is.na(activity))
+
+dataa <- dataa %>%
+  arrange(ID, date_time) %>%
+  group_by(ID) %>%
+  mutate(
+    time_diff = lead(date_time) - date_time
+  ) %>%
+  ungroup()
+
+
+dataa <- dataa %>%
+  mutate(
+    is_sleep_start = if_else(
+      time_diff >= hours(6), TRUE, FALSE, missing = FALSE))
+
+id_1 <- dataa %>% filter(ID == 1)
+
+```
+
+
+```{r}
+
 ```
 
 
