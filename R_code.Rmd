@@ -69,16 +69,56 @@ any(is.na(data$time))
 
 # Transforming the variable into an time variable:
 data <- data %>% mutate(
-  time_t = as.POSIXct(
+  date_time = as.POSIXct(
     as.character(time), 
     format="%Y-%m-%d %H:%M:%OS"))
+data <- subset(data, select = -time)
 
 # Quick Summary
-summary(data$time_t)
+summary(data$date_time)
+```
 
+
+### Date and Time
+```{r}
+# Creating a date variable
+data <- data %>%
+  mutate(date = as.Date(date_time))
+# Creating a time variable
+data <- data %>%
+  mutate(time = format(date_time, "%H:%M:%S"))
+# Creating an hour variable
+data <- data %>%
+  mutate(hour = format(date_time, "%H"))
+
+# Creating a weekdays variable
+data <- data %>%
+  mutate(weekday = weekdays(date_time),
+         weekday = factor(
+           weekday, 
+           levels = c("Monday", "Tuesday", 
+                      "Wednesday", "Thursday", 
+                      "Friday", "Saturday", 
+                      "Sunday")))
+
+
+
+unique(data$weekday)
+
+
+weekdays()
+hist(as.numeric(data$hour))
+hist(data$date,breaks = 100)
+```
+
+
+### Visualization
+```{r}
 # Histogram
 data %>% ggplot(aes(x = time_t)) + 
-  geom_histogram(bins = 100, color = "black", fill = "darkgreen") +
+  geom_histogram(bins = 100, 
+                 color = "black", 
+                 fill = "darkgreen") +
   theme_classic(base_family = "Times") + 
   labs(title = "Distribution of Observation Times", 
        x = "Date-Time", 
@@ -86,6 +126,22 @@ data %>% ggplot(aes(x = time_t)) +
   # Rotating x-axis labels for better readability:
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
   scale_x_datetime(date_breaks = "2 weeks", date_labels = "%d %b %Y")
+```
+
+
+
+```{r}
+x <- data %>%
+  mutate(
+    time_t = as.POSIXct(as.character(time), format="%Y-%m-%d %H:%M:%OS"),
+    time_only = format(time_t, "%H:%M:%S"),
+    seconds_since_midnight = hour(time_t) * 3600 + minute(time_t) * 60 + second(time_t)
+  )
+
+# Now you can create a histogram of `seconds_since_midnight`
+hist(x$seconds_since_midnight, breaks=24, main="Distribution of Time Throughout the Day",
+     xlab="Seconds Since Midnight", ylab="Frequency")
+
 ```
 
 
@@ -142,7 +198,6 @@ for (participant in unique(data$ID)) {
   
   print(p)
 }
-colors()
 ```
 
 Participant number 7 have too much fluctuations and can be considered an outlier among the other participants. It might possibly be a good idea to exclude them. Maybe also participant number 33.
@@ -167,7 +222,10 @@ mood_summary %>% ggplot(aes(x = "", y = sd_mood)) +
   geom_text(aes(label=outlier), na.rm=TRUE, hjust=-1)
 ```
 
-Although, it needs to be noted that individuals who have depression will show these mood fluctuations. If we assume that this sample is a representative sample, considering the $10-20\%$ prevalance, we should expect around $2-4$ individuals that are displaying such patterns. Hence, it is a question whether this should actually be considered as an "anomaly". 
+Although, it needs to be noted that individuals who have depression will show these mood fluctuations. If we assume that this sample is a representative sample, considering the $10-20\%$ prevalence, we should expect around $2-4$ individuals that are displaying such patterns. Hence, it is a question whether this should actually be considered as an "anomaly". 
+
+
+
 
 
 ## Arousal & Valence
@@ -238,6 +296,25 @@ boxplot(log(wide_data$appCat.game))
 ```{r}
 max(wide_data$appCat.game)
 summary(wide_data$sms)
+```
+
+
+# Data Analysis
+
+```{r}
+data_1 <- data %>% filter(ID == 1)
+
+new_data <- data %>%
+  group_by(date) %>%
+  summarise(
+    variable_mean = mean(mood, na.rm = TRUE),
+    variable_sum = sum(appCat.game, na.rm = TRUE),
+    variable_sum = sum(appCat.social, na.rm = TRUE)
+  )
+data$appCat.social
+
+x <- lm(variable_mean ~ variable_sum, data = new_data)
+summary(x)
 ```
 
 
