@@ -107,43 +107,43 @@ data <- data %>%
 # Creating Variable: the week of the year (of Observation)
 data <- data %>%
   mutate(week_of_year = lubridate::week(date_time))
-
-data$week_of_year
-unique(data$week_of_year)
-weekdays()
-hist(as.numeric(data$hour))
-hist(data$date,breaks = 100)
 ```
 
 
-### Visualization
+### Visual: Entire Time
 ```{r}
 # Histogram
 data %>% ggplot(aes(x = time_t)) + 
   geom_histogram(bins = 100, 
                  color = "black", 
-                 fill = "darkgreen") +
+                 fill = "purple2") +
   theme_classic(base_family = "Times") + 
   labs(title = "Distribution of Observation Times", 
        x = "Date-Time", 
        y = "Frequency") +
   # Rotating x-axis labels for better readability:
-  theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
-  scale_x_datetime(date_breaks = "2 weeks", date_labels = "%d %b %Y")
+  theme(axis.text.x = element_text(
+    angle = 30, hjust = 1)) +
+  scale_x_datetime(
+    date_breaks = "2 weeks", 
+    date_labels = "%d %b %Y")
 ```
 
+### Visual: Weekdays
 ```{r}
+# Summarizing Per Weekday
 weekday_summary <- data %>%
   group_by(weekday) %>%
   summarise(
     mean_mood = mean(mood, na.rm = TRUE),
     sd_mood = sd(mood, na.rm = TRUE),
-    n = n(),
+    n = sum(!is.na(mood)),
     sem = sd_mood / sqrt(n),
-    ci_lower = mean_mood - qnorm(0.995) * sem,
-    ci_upper = mean_mood + qnorm(0.995) * sem
+    ci_lower = mean_mood - qnorm(0.975) * sem,
+    ci_upper = mean_mood + qnorm(0.975) * sem
   )
 
+# Bar Plot
 weekday_summary %>%
   ggplot(aes(
     x = weekday, 
@@ -153,14 +153,60 @@ weekday_summary %>%
   geom_errorbar(aes(ymin = ci_lower, 
                     ymax = ci_upper), 
                 width = .2) +  
+  geom_text(aes(
+    label = n, 
+    y = mean_mood + 0.02), 
+    vjust = -5.5,
+    family = "Times New Roman") + 
   theme_classic(base_family = "Times") +
   labs(
     title = "Mean Mood per Weekday",
     x = "Weekday",
     y = "Mean Mood"
-  ) + coord_cartesian(ylim = c(6.8,7.25))
+  ) + 
+  coord_cartesian(ylim = c(6.8,7.5))
+  
 ```
 
+
+### Visual: Week of Year
+```{r}
+# Summarizing Per Weekday
+week_summary <- data %>%
+  group_by(week_of_year) %>%
+  summarise(
+    mean_mood = mean(mood, na.rm = TRUE),
+    sd_mood = sd(mood, na.rm = TRUE),
+    n = sum(!is.na(mood)),
+    sem = sd_mood / sqrt(n),
+    ci_lower = mean_mood - qnorm(0.975) * sem,
+    ci_upper = mean_mood + qnorm(0.975) * sem
+  )
+
+# Bar Plot
+week_summary %>%
+  ggplot(aes(
+    x = week_of_year, 
+    y = mean_mood)) + 
+  geom_col(color = "black", 
+           fill = "skyblue") +
+  geom_errorbar(aes(ymin = ci_lower, 
+                    ymax = ci_upper), 
+                width = .2) +  
+  geom_text(aes(
+    label = n, 
+    y = mean_mood + 0.02), 
+    vjust = -5.5,
+    family = "Times New Roman") + 
+  theme_classic(base_family = "Times") +
+  labs(
+    title = "Mean Mood per Week of the Year",
+    x = "Week of the Year",
+    y = "Mean Mood"
+  ) + 
+  coord_cartesian(ylim = c(6,7.6))
+  
+```
 
 
 ```{r}
