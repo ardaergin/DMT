@@ -12,6 +12,7 @@ library(tidyr)
 library(ggplot2)
 library(patchwork)
 library(scales)
+library(lubridate)
 ```
 
 ```{r}
@@ -79,19 +80,21 @@ summary(data$date_time)
 ```
 
 
-### Date and Time
+### New Variables
 ```{r}
-# Creating a date variable
+# Creating Variable: the Date (of Observation)
 data <- data %>%
   mutate(date = as.Date(date_time))
-# Creating a time variable
+
+# Creating Variable: the Time (of Observation)
 data <- data %>%
   mutate(time = format(date_time, "%H:%M:%S"))
-# Creating an hour variable
+
+# Creating Variable: the Hour (of Observation)
 data <- data %>%
   mutate(hour = format(date_time, "%H"))
 
-# Creating a weekdays variable
+# Creating Variable: the day of the week (of Observation)
 data <- data %>%
   mutate(weekday = weekdays(date_time),
          weekday = factor(
@@ -101,11 +104,12 @@ data <- data %>%
                       "Friday", "Saturday", 
                       "Sunday")))
 
+# Creating Variable: the week of the year (of Observation)
+data <- data %>%
+  mutate(week_of_year = lubridate::week(date_time))
 
-
-unique(data$weekday)
-
-
+data$week_of_year
+unique(data$week_of_year)
 weekdays()
 hist(as.numeric(data$hour))
 hist(data$date,breaks = 100)
@@ -126,6 +130,35 @@ data %>% ggplot(aes(x = time_t)) +
   # Rotating x-axis labels for better readability:
   theme(axis.text.x = element_text(angle = 30, hjust = 1)) +
   scale_x_datetime(date_breaks = "2 weeks", date_labels = "%d %b %Y")
+```
+
+```{r}
+weekday_summary <- data %>%
+  group_by(weekday) %>%
+  summarise(
+    mean_mood = mean(mood, na.rm = TRUE),
+    sd_mood = sd(mood, na.rm = TRUE),
+    n = n(),
+    sem = sd_mood / sqrt(n),
+    ci_lower = mean_mood - qnorm(0.995) * sem,
+    ci_upper = mean_mood + qnorm(0.995) * sem
+  )
+
+weekday_summary %>%
+  ggplot(aes(
+    x = weekday, 
+    y = mean_mood)) + 
+  geom_col(color = "black", 
+           fill = "skyblue") +
+  geom_errorbar(aes(ymin = ci_lower, 
+                    ymax = ci_upper), 
+                width = .2) +  
+  theme_classic(base_family = "Times") +
+  labs(
+    title = "Mean Mood per Weekday",
+    x = "Weekday",
+    y = "Mean Mood"
+  ) + coord_cartesian(ylim = c(6.8,7.25))
 ```
 
 
