@@ -37,7 +37,7 @@ data_0 <- data_raw %>%
 # Changing the name for the "X" variable
 colnames(data_0)[1] <- "obs_number"
 
-# Getting rid of the 
+# Getting rid of the id variable
 data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
 ```
 
@@ -53,7 +53,7 @@ data <- as.data.frame(wide_data)
 
 Looking at Just one Individual
 ```{r}
-data_id_1 <- data %>% filter(id == "AS14.01")
+data_id_1 <- data %>% filter(ID == 1)
 ```
 
 
@@ -93,6 +93,7 @@ data <- data %>%
 # Creating Variable: the Hour (of Observation)
 data <- data %>%
   mutate(hour = format(date_time, "%H"))
+data$hour <- as.numeric(data$hour)
 
 # Creating Variable: the day of the week (of Observation)
 data <- data %>%
@@ -112,27 +113,62 @@ data <- data %>%
 
 ### Visual: Entire Time
 ```{r}
+length(unique(data$date))
 # Histogram
-data %>% ggplot(aes(x = date_time)) + 
-  geom_histogram(bins = 100, 
+data %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = 112, 
                  color = "black", 
                  fill = "purple2") +
   theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Observation Times", 
+  labs(title = "Distribution of Observations", 
        x = "Date-Time", 
-       y = "Frequency") +
-  # Rotating x-axis labels for better readability:
-  theme(axis.text.x = element_text(
-    angle = 30, hjust = 1)) +
-  scale_x_datetime(
-    date_breaks = "2 weeks", 
-    date_labels = "%d %b %Y")
+       y = "Frequency") + scale_x_date(breaks = "1 week",date_labels = "%d-%m")
 ```
 
-### Visual: Weekdays
+### Visual: Hours
 ```{r}
-hist((data$hour))
+data %>% ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "purple2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+```
 
+### Visual: Hour x Activity
+
+```{r}
+# Summarizing Per Weekday
+hour_activity <- data %>%
+  group_by(hour) %>%
+  summarise(
+    mean_act = mean(activity, na.rm = TRUE),
+    sd_act = sd(activity, na.rm = TRUE),
+    n = sum(!is.na(activity)),
+    sem = sd_act / sqrt(n),
+    ci_lower = mean_act - qnorm(0.975) * sem,
+    ci_upper = mean_act + qnorm(0.975) * sem
+  )
+
+# Bar Plot
+hour_activity %>%
+  ggplot(aes(
+    x = hour, 
+    y = mean_act)) + 
+  geom_col(color = "black", 
+           fill = "skyblue1") +
+  geom_errorbar(aes(ymin = ci_lower, 
+                    ymax = ci_upper), 
+                width = .2) + 
+  theme_classic(base_family = "Times") +
+  labs(
+    title = "Mean Activity per Hour",
+    x = "Hour",
+    y = "Mean Activity"
+  )
 ```
 
 
@@ -156,12 +192,12 @@ weekday_summary %>%
     x = weekday, 
     y = mean_mood)) + 
   geom_col(color = "black", 
-           fill = "skyblue") +
+           fill = "skyblue1") +
   geom_errorbar(aes(ymin = ci_lower, 
                     ymax = ci_upper), 
                 width = .2) +  
   geom_text(aes(
-    label = n, 
+    label = paste("n =", n), 
     y = mean_mood + 0.02), 
     vjust = -5.5,
     family = "Times New Roman") + 
@@ -172,7 +208,6 @@ weekday_summary %>%
     y = "Mean Mood"
   ) + 
   coord_cartesian(ylim = c(6.8,7.5))
-  
 ```
 
 
@@ -368,64 +403,73 @@ max(wide_data$appCat.game)
 summary(wide_data$sms)
 ```
 
-## activity
-```{r}
-# Summarizing Per Weekday
-hour_activity <- data %>%
-  group_by(hour) %>%
-  summarise(
-    mean_act = mean(activity, na.rm = TRUE),
-    sd_act = sd(activity, na.rm = TRUE),
-    n = sum(!is.na(activity)),
-    sem = sd_act / sqrt(n),
-    ci_lower = mean_act - qnorm(0.975) * sem,
-    ci_upper = mean_act + qnorm(0.975) * sem
-  )
 
-# Bar Plot
-hour_activity %>%
-  ggplot(aes(
-    x = hour, 
-    y = mean_act)) + 
-  geom_col(color = "black", 
-           fill = "skyblue") +
-  geom_errorbar(aes(ymin = ci_lower, 
-                    ymax = ci_upper), 
-                width = .2) +  
-  geom_text(aes(
-    label = n, 
-    y = mean_mood + 0.02), 
-    vjust = -5.5,
-    family = "Times New Roman") + 
-  theme_classic(base_family = "Times") +
-  labs(
-    title = "Mean Mood per Week of the Year",
-    x = "Week of the Year",
-    y = "Mean Mood"
-  ) + 
-  coord_cartesian(ylim = c(6,7.6))
-  
+
+
+# Some Cleaning
+```{r}
+for(i in 1:ncol(data)){
+  cat("\n=========\n")
+  cat(colnames(data)[i])
+  cat("\n=========\n")
+  print(summary(data[,i]))
+}
+```
+
+```{r}
+# Problematic Data
+data %>% filter(appCat.builtin < 0)
+
+# Filtering these 3 responses 
+data_cleaner <- data %>% filter(appCat.builtin >= 0 | is.na(appCat.builtin))
 ```
 
 
 
-
-# Data Analysis
+## Filtering Time
 
 ```{r}
-data_1 <- data %>% filter(ID == 1)
+table(data$date)
+# 2014-03-13 or 2014-03-20
+# 2014-05-29 or 2014-05-05
 
-new_data <- data %>%
-  group_by(date) %>%
+data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
+data_filter_time_2 <- data %>% filter(date > "2014-03-20" & date < "2014-05-05")
+```
+
+
+
+# Aggregating
+
+We have a couple of options
+
+The most straightforward one (and kind of bad):
+```{r}
+# aggregating the data by date, for all participants
+new_data <- data_filter_time %>%
+  group_by(date, ID) %>%
   summarise(
     variable_mean = mean(mood, na.rm = TRUE),
-    variable_sum = sum(appCat.game, na.rm = TRUE),
-    variable_sum = sum(appCat.social, na.rm = TRUE)
-  )
-data$appCat.social
+    circumplex.arousal = mean(circumplex.arousal, na.rm = TRUE),
+    circumplex.valence = mean(circumplex.valence, na.rm = TRUE),
+    activity = mean(activity, na.rm = TRUE),
+    # screen???
+    call = sum(call, na.rm = TRUE),
+    sms = sum(sms, na.rm = TRUE),
+    appCat.builtin = sum(appCat.builtin, na.rm = TRUE),
+    appCat.communication = sum(appCat.communication, na.rm = TRUE),
+    appCat.entertainment = sum(appCat.entertainment, na.rm = TRUE),
+    appCat.finance = sum(appCat.finance, na.rm = TRUE),
+    appCat.game = sum(appCat.game, na.rm = TRUE),
+    appCat.office = sum(appCat.office, na.rm = TRUE),
+    appCat.other = sum(appCat.other, na.rm = TRUE),
+    appCat.social = sum(appCat.social, na.rm = TRUE),
+    appCat.travel = sum(appCat.travel, na.rm = TRUE),
+    appCat.unknown = sum(appCat.unknown, na.rm = TRUE),
+    appCat.utilities = sum(appCat.utilities, na.rm = TRUE), 
+    appCat.weather = sum(appCat.weather, na.rm = TRUE), 
+    .groups = "drop")
 
-x <- lm(variable_mean ~ variable_sum, data = new_data)
-summary(x)
 ```
 
 
@@ -474,10 +518,6 @@ id_1 <- dataa %>% filter(ID == 1)
 
 ```
 
-
-```{r}
-
-```
 
 
 
