@@ -19,7 +19,6 @@ library(lubridate)
 data_raw <- read.csv("data.csv")
 ```
 
-# Start
 
 How many variables and how many participants?
 ```{r}
@@ -27,24 +26,45 @@ unique(data_raw$variable)
 unique(data_raw$id)
 ```
 
-Some Fixes:
+Some Quick Fixes:
 ```{r}
+##### ID #####
 # Getting a better ID column:
 data_0 <- data_raw %>%
   mutate(ID = as.numeric(sapply(
     strsplit(id, split = '\\.'), function(x) x[2])))
+# Factorizing the ID variable
+data_0$ID <- factor(data_0$ID)
 
+##### "X" #####
 # Changing the name for the "X" variable
 colnames(data_0)[1] <- "obs_number"
+
 
 # Getting rid of the id variable
 data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
 ```
 
+fixing time
+```{r}
+# Checking if there is any NAs in the `time` variable
+any(is.na(data_1$time))
+
+# Transforming the variable into an time variable:
+data_1 <- data_1 %>% mutate(
+  date_time = as.POSIXct(
+    as.character(time), 
+    format="%Y-%m-%d %H:%M:%OS"))
+data_2 <- subset(data_1, select = -time)
+
+# Quick Summary
+summary(data_2$date_time)
+```
+
 Long to Wide Transformation:
 ```{r}
 wide_data <- tidyr::pivot_wider(
-  data_0, 
+  data_1, 
   names_from = variable, 
   values_from = value)
 
@@ -60,25 +80,142 @@ data_id_1 <- data %>% filter(ID == 1)
 
 
 
-
-
 # Investigating Variables
-## time
+## (ALL) Checking Range
 ```{r}
-# Checking if there is any NAs in the `time` variable
-any(is.na(data$time))
-
-# Transforming the variable into an time variable:
-data <- data %>% mutate(
-  date_time = as.POSIXct(
-    as.character(time), 
-    format="%Y-%m-%d %H:%M:%OS"))
-data <- subset(data, select = -time)
-
-# Quick Summary
-summary(data$date_time)
+for(i in 1:ncol(data)){
+  cat("\n=========\n")
+  cat(colnames(data)[i])
+  cat("\n=========\n")
+  print(summary(data[,i]))
+}
 ```
 
+Based on these, cleaning the necessary data:
+```{r}
+# Taking a look at the problematic data
+problematic <- data %>% filter(appCat.builtin < 0)
+problematic
+
+# Filtering these 3 responses 
+data_cleaner <- data %>% filter(appCat.builtin >= 0 | is.na(appCat.builtin))
+data <- data_cleaner
+```
+
+
+## Mood
+```{r}
+# Quick Summary
+summary(wide_data$mood)
+table(wide_data$mood)
+
+# Histogram
+data %>% ggplot(aes(x = mood)) + 
+  geom_histogram(bins = 10, color = "black", fill = "firebrick") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Mood Observations", 
+       x = "Mood", 
+       y = "Frequency")
+```
+
+```{r}
+mood_summary <- data %>%
+  group_by(ID) %>%
+  summarise(mean_mood = mean(mood, na.rm = TRUE),
+            median_mood = median(mood, na.rm = TRUE),
+            sd_mood = sd(mood, na.rm = TRUE),
+            max_mood = max(mood, na.rm = TRUE),
+            min_mood = min(mood, na.rm = TRUE))
+mood_summary
+```
+
+Important the understand our DV, so good to summarize is for each participant.        
+- Overall, there does not seem to be much of a difference between the individuals in terms of their mean and median.
+- On the other hand, mood fluctuations are not the same for all individuals, and there might be individuals who experience more fluctuations.
+
+```{r}
+for (participant in unique(data$ID)) {
+  moods <- data %>%
+    filter(!is.na(mood))
+  
+  mood <- moods %>% filter(ID == participant)
+  
+  p <- mood %>% ggplot(
+    aes(x = date_time, 
+        y = mood)) +
+    geom_line(color = colors()[sample(8:length(colors()),1)]) + 
+    scale_y_continuous(limits = c(1, 10)) +
+    theme_classic(base_family = "Times") + 
+    theme(legend.position = "none") +
+    labs(title = paste(
+      "Mood Over Time for Participant Number", 
+      participant), 
+         x = "Time", 
+         y = "Mood")
+  
+  print(p)
+}
+```
+
+Participant number 7 have too much fluctuations and can be considered an outlier among the other participants. It might possibly be a good idea to exclude them. Maybe also participant number 33.
+
+```{r}
+# Creating a new variable in our "mood_summary" 
+# Putting the ID to the column if the participant is an outlier 
+# FROM: https://www.r-bloggers.com/2022/08/how-to-label-outliers-in-boxplots-in-ggplot2/
+find_outlier <- function(x) {
+  return(x < quantile(x, .25) - 1.5*IQR(x) | x > quantile(x, .75) + 1.5*IQR(x))
+}
+
+mood_summary <- mood_summary %>%
+  mutate(outlier = ifelse(find_outlier(sd_mood), ID, NA))
+
+mood_summary %>% ggplot(aes(x = "", y = sd_mood)) +
+  geom_boxplot(color = "firebrick") +
+  theme_classic() +
+  labs(title = "Boxplot of Standard Deviation of Mood",
+       y = "Standard Deviation of Mood",
+       x = "") + 
+  geom_text(aes(label=outlier), na.rm=TRUE, hjust=-1)
+```
+
+Although, it needs to be noted that individuals who have depression will show these mood fluctuations. If we assume that this sample is a representative sample, considering the $10-20\%$ prevalence, we should expect around $2-4$ individuals that are displaying such patterns. Hence, it is a question whether this should actually be considered as an "anomaly". 
+
+
+
+## Arousal & Valence
+```{r}
+# Quick Summary: Arousal
+summary(data$circumplex.arousal)
+table(data$circumplex.arousal)
+
+# Quick Summary: Valence
+summary(data$circumplex.valence)
+table(data$circumplex.valence)
+
+# Histograms & Combining Them
+hist_arousal <- data %>% ggplot(aes(x = circumplex.arousal)) + 
+  geom_histogram(bins = 5, color = "black", fill = "deepskyblue2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Arousal", 
+       x = "Arousal", 
+       y = "Frequency")
+
+hist_valence <- data %>% ggplot(aes(x = circumplex.valence)) + 
+  geom_histogram(bins = 5, color = "black", fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Valence", 
+       x = "Valence", 
+       y = "Frequency")
+
+# Doing layout for ggpplot2:
+(hist_arousal | hist_valence) + 
+  patchwork::plot_layout(ncol = 2)
+```
+
+
+
+## Time
 
 ### New Variables
 ```{r}
@@ -125,7 +262,7 @@ data %>% ggplot(aes(x = date)) +
        y = "Frequency") + scale_x_date(breaks = "1 week",date_labels = "%d-%m")
 ```
 
-### Visual: Hours
+### Visual: Hour x Observ.
 ```{r}
 data %>% ggplot(aes(x = hour)) + 
   geom_histogram(bins = 24, 
@@ -238,7 +375,7 @@ week_summary %>%
   geom_text(aes(
     label = n, 
     y = mean_mood + 0.02), 
-    vjust = -5.5,
+    vjust = -10,
     family = "Times New Roman") + 
   theme_classic(base_family = "Times") +
   labs(
@@ -251,191 +388,44 @@ week_summary %>%
 ```
 
 
-## Mood
-```{r}
-# Quick Summary
-summary(wide_data$mood)
-table(wide_data$mood)
 
-# Histogram
-data %>% ggplot(aes(x = mood)) + 
-  geom_histogram(bins = 10, color = "black", fill = "firebrick") +
-  theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Mood Observations", 
-       x = "Mood", 
-       y = "Frequency")
-```
-
-```{r}
-mood_summary <- data %>%
-  group_by(ID) %>%
-  summarise(mean_mood = mean(mood, na.rm = TRUE),
-            median_mood = median(mood, na.rm = TRUE),
-            sd_mood = sd(mood, na.rm = TRUE),
-            max_mood = max(mood, na.rm = TRUE),
-            min_mood = min(mood, na.rm = TRUE))
-mood_summary
-```
-
-Important the understand our DV, so good to summarize is for each participant.        
-- Overall, there does not seem to be much of a difference between the individuals in terms of their mean and median.
-- On the other hand, mood fluctuations are not the same for all individuals, and there might be individuals who experience more fluctuations.
-
-```{r}
-for (participant in unique(data$ID)) {
-  moods <- data %>%
-    filter(!is.na(mood))
-  
-  mood <- moods %>% filter(ID == participant)
-  
-  p <- mood %>% ggplot(
-    aes(x = date_time, 
-        y = mood)) +
-    geom_line(color = colors()[sample(8:length(colors()),1)]) + 
-    scale_y_continuous(limits = c(1, 10)) +
-    theme_classic(base_family = "Times") + 
-    theme(legend.position = "none") +
-    labs(title = paste(
-      "Mood Over Time for Participant Number", 
-      participant), 
-         x = "Time", 
-         y = "Mood")
-  
-  print(p)
-}
-```
-
-Participant number 7 have too much fluctuations and can be considered an outlier among the other participants. It might possibly be a good idea to exclude them. Maybe also participant number 33.
-
-```{r}
-# Creating a new variable in our "mood_summary" 
-# Putting the ID to the column if the participant is an outlier 
-# FROM: https://www.r-bloggers.com/2022/08/how-to-label-outliers-in-boxplots-in-ggplot2/
-find_outlier <- function(x) {
-  return(x < quantile(x, .25) - 1.5*IQR(x) | x > quantile(x, .75) + 1.5*IQR(x))
-}
-
-mood_summary <- mood_summary %>%
-  mutate(outlier = ifelse(find_outlier(sd_mood), ID, NA))
-
-mood_summary %>% ggplot(aes(x = "", y = sd_mood)) +
-  geom_boxplot(color = "firebrick") +
-  theme_classic() +
-  labs(title = "Boxplot of Standard Deviation of Mood",
-       y = "Standard Deviation of Mood",
-       x = "") + 
-  geom_text(aes(label=outlier), na.rm=TRUE, hjust=-1)
-```
-
-Although, it needs to be noted that individuals who have depression will show these mood fluctuations. If we assume that this sample is a representative sample, considering the $10-20\%$ prevalence, we should expect around $2-4$ individuals that are displaying such patterns. Hence, it is a question whether this should actually be considered as an "anomaly". 
-
-
-
-
-
-## Arousal & Valence
-```{r}
-# Quick Summary: Arousal
-summary(data$circumplex.arousal)
-table(data$circumplex.arousal)
-
-# Quick Summary: Valence
-summary(data$circumplex.valence)
-table(data$circumplex.valence)
-
-# Histograms & Combining Them
-hist_arousal <- data %>% ggplot(aes(x = circumplex.arousal)) + 
-  geom_histogram(bins = 5, color = "black", fill = "deepskyblue2") +
-  theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Arousal", 
-       x = "Arousal", 
-       y = "Frequency")
-
-hist_valence <- data %>% ggplot(aes(x = circumplex.valence)) + 
-  geom_histogram(bins = 5, color = "black", fill = "purple2") +
-  theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Valence", 
-       x = "Valence", 
-       y = "Frequency")
-
-# Doing layout for ggpplot2:
-(hist_arousal | hist_valence) + 
-  patchwork::plot_layout(ncol = 2)
-```
-
-
-## circumplex.arousal
-```{r}
-hist(wide_data$circumplex.arousal)
-summary(wide_data$circumplex.arousal)
-table(wide_data$circumplex.arousal)
-```
-
-## circumplex.valence
-```{r}
-hist(wide_data$circumplex.valence)
-summary(wide_data$circumplex.valence)
-table(wide_data$circumplex.valence)
-
-names(wide_data)
-```
-
-
-```{r}
-hist(log(wide_data$activity))
-summary(wide_data$activity)
-qqnorm(log(wide_data$activity))
-```
-
-
-## appCat.game
-```{r}
-gamers <- wide_data %>% filter(appCat.game > 300)
-hist(log(wide_data$appCat.game), breaks = 100)
-boxplot(log(wide_data$appCat.game))
-```
-
-
-## appCat.game
-
-```{r}
-max(wide_data$appCat.game)
-summary(wide_data$sms)
-```
-
-
-
-
-# Some Cleaning
-```{r}
-for(i in 1:ncol(data)){
-  cat("\n=========\n")
-  cat(colnames(data)[i])
-  cat("\n=========\n")
-  print(summary(data[,i]))
-}
-```
-
-```{r}
-# Problematic Data
-data %>% filter(appCat.builtin < 0)
-
-# Filtering these 3 responses 
-data_cleaner <- data %>% filter(appCat.builtin >= 0 | is.na(appCat.builtin))
-```
-
-
-
-## Filtering Time
+### *** Filtering Time ***
 
 ```{r}
 table(data$date)
 # 2014-03-13 or 2014-03-20
 # 2014-05-29 or 2014-05-05
+```
 
+
+
+```{r}
+# A bit more conservative: 
 data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
+# > 4000
 data_filter_time_2 <- data %>% filter(date > "2014-03-20" & date < "2014-05-05")
 ```
+
+
+```{r}
+data_filter_time_2 %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data_filter_time_2$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations over Time", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(
+    breaks = seq(as.Date("2014-03-21"), 
+                 as.Date("2014-05-04"), 
+                 by = "1 day"), 
+    date_labels = "%d-%m") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
 
 
 
@@ -494,9 +484,6 @@ x_2 <- x %>% filter(date == "2014-02-26")
 
 
 ```{r}
-
-data
-
 
 dataa <- data %>% filter(is.na(activity))
 
