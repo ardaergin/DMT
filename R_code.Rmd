@@ -106,6 +106,16 @@ data <- data_cleaner
 ```
 
 
+## Checking for Duplicates
+```{r}
+# Identifying duplicate rows
+duplicates <- duplicated(data)
+
+# View duplicate rows
+data[duplicates, ]
+```
+
+
 ## Mood
 ```{r}
 # Quick Summary
@@ -448,7 +458,7 @@ unique(data$days_since_start)
 
 ## Taking a Look at Activity
 ```{r}
-activity_count_per_hour <- data_filter_time_2 %>%
+activity_count_per_hour <- data %>%
   filter(!is.na(activity)) %>%
   group_by(hour) %>%
   summarize(count = n())
@@ -464,7 +474,7 @@ activity_count_per_hour %>%
 
 
 ```{r}
-activity_count_per_hour <- data_filter_time_2 %>%
+activity_count_per_hour <- data %>%
   filter(activity == 0) %>%
   group_by(hour) %>%
   summarize(count = n())
@@ -476,6 +486,11 @@ activity_count_per_hour %>%
     y = count)) + 
   geom_col(color = "black", 
            fill = "orange")
+```
+
+
+```{r}
+write.csv(data, "data_1.csv")
 ```
 
 
@@ -570,7 +585,7 @@ data <- data %>%
 ```
 
 
-## WORKING
+## WORKING ON IT NOW
 ```{r}
 # Determine if sleep occurred after midnight
 data <- data %>% mutate(
@@ -633,10 +648,10 @@ aggregated_data <- data %>%
     appCat.weather = sum(appCat.weather, na.rm = TRUE), 
     .groups = "drop")
 
-# Standandardizing
+# Standardizing
 aggregated_data_2 <- aggregated_data %>%
   mutate_at(vars(arousal:appCat.weather), scale)
-
+colnames(aggregated_data_2)
 
 # Model
 model <- lme4::lmer(
@@ -658,16 +673,14 @@ model <- lme4::lmer(
     appCat.utilities + 
     appCat.weather + 
     (1|ID), 
-  data = aggregated_data_2)
+  data = aggregated_data)
 summary(model)
 ```
 
 
-
 ```{r}
-
+write.csv(aggregated_data, "data_aggregated.csv")
 ```
-
 
 
 
