@@ -476,33 +476,28 @@ activity_count_per_hour %>%
 ```
 
 
+
+# Sleep
 ```{r}
 data <- x
 ```
 
-
-```{r}
-id <- data %>% filter(ID == 17)
-
-id_2_days <- id %>% filter(days_since_start == 0 | days_since_start == 1)
-
-
-unique(id$days_since_start)
-```
-
-
-
-## Trials
 ```{r}
 # Sort data by date_time
 data <- data %>% arrange(ID, date_time)
-
-# Potential Sleep Hour 
-data <- data %>% mutate(
-  after_midnight_activity = (hour >= 0 | hour <= 6))
 ```
 
+```{r}
+# Potential Hours 
+data <- data %>% mutate(
+  after_midnight_activity = (hour >= 0 & hour <= 6),
+  # Wake up Hour (first observation after the difference)
+  potential_sleep_hour = (hour >= 20 | hour <= 11),
+  # Wake up Hour (first observation after the difference)
+  potential_wakeup_hour = (hour >= 5 & hour <= 12))
+```
 
+## Potential Sleep Gap
 ```{r}
 # Column for the time difference between 
 # the current observation and the last observation
@@ -511,15 +506,13 @@ data <- data %>% group_by(ID) %>% mutate(
   time_diff = round(
     difftime(date_time, lag(date_time),
              units = "hours"), 3),
-  # Wake up Hour (first observation after the difference)
-  potential_wakeup_hour = (hour >= 5 & hour <= 12),
   # Gap based on both these variables
-  possible_sleep_gap = (time_diff >= 6 & time_diff <= 15) & 
+  possible_sleep_gap = (time_diff >= 5 & time_diff <= 15) & 
     (potential_wakeup_hour == TRUE)) %>% 
   ungroup()
 ```
 
-
+## Inactivity
 ```{r}
 # Inactivity
 data <- data %>% mutate(
@@ -531,415 +524,69 @@ data <- data %>% mutate(
 # Applying a run-length encoding to count consecutive inactive periods
 data <- data %>% group_by(ID) %>% mutate(
     consecutive_inactive = with(rle(is_inactive), {
-      lengths_corrected <- lengths * values  # Only count lengths where is_inactive is TRUE
-      rep(lengths_corrected, lengths)   # Repeat these lengths according to run lengths
+      # Only count lengths where is_inactive is TRUE:
+      lengths_corrected <- lengths * values  
+      # Repeat these lengths according to run lengths:
+      rep(lengths_corrected, lengths)   
     })) %>% 
   ungroup()
 ```
 
+## Fragmented Sleep
+```{r}
+########  1  #############
+# last inactive hour
+data <- data %>%
+  mutate(
+    # Check if current observation is inactive
+    last_inactive_hour = if_else(is_inactive, hour, 
+                                            NA_integer_)
+  ) %>%
+  group_by(ID) %>%
+  # Fill NA values with the last known inactive hour, carrying it forward
+  fill(last_inactive_hour, .direction = "down") %>%
+  ungroup()
 
+########  2  ##########
+# Assuming data is already loaded and date_time is in POSIXct format
+data <- data %>%
+  mutate(
+    # Record the datetime of the last inactive observation
+    last_inactive_time = if_else(is_inactive, date_time, as.POSIXct(NA))
+  ) %>%
+  group_by(ID) %>%
+  # Fill NA values with the last known inactive datetime, carrying it forward
+  fill(last_inactive_time, .direction = "down") %>%
+  ungroup() %>%
+  mutate(
+    # Calculate the time difference in hours between now and the last inactive time
+    time_since_last_inactive = if_else(is.na(last_inactive_time),
+                                       NA_real_,
+                                       as.numeric(difftime(date_time, last_inactive_time, units = "hours")))
+  )
+```
+
+
+## WORKING
+
+
+## Sleep
 ```{r}
 data <- data %>% group_by(ID)%>% mutate(
-    sleep_start = (
-      consecutive_inactive >= 4 & 
-        lag(consecutive_inactive, default = 0) < 4) | 
-      lag(possible_sleep_gap, default = FALSE),
-    sleep_end = (
-      consecutive_inactive >= 4 & 
-        lead(consecutive_inactive, default = 0) < 4) | 
-      possible_sleep_gap,
-    session_id = cumsum(sleep_start)
+  sleep = case_when(
+    consecutive_inactive >= 4 & 
+      potential_sleep_hour ~ consecutive_inactive, 
+    
+    possible_sleep_gap & 
+      potential_wakeup_hour ~ round(as.numeric(time_diff)),
+    
+    TRUE ~ 0
   )
-
-unique(data$session_id)
-```
-
-```{r}
-data_summarized <- data %>%
-  group_by(ID, session_id) %>%
-  summarize(
-    bedtime = if(any(sleep_start)) min(date_time[sleep_start], na.rm = TRUE) else NA_real_,
-    wake_time = if(any(sleep_end)) max(date_time[sleep_end], na.rm = TRUE) else NA_real_,
-    .groups = 'drop'
-  ) %>%
-  ungroup() %>%
-  mutate(
-    # Ensure that NA values are returned as NA of type POSIXct to maintain type consistency
-    bedtime = as.POSIXct(bedtime, origin = "1970-01-01", tz = "UTC"),
-    wake_time = as.POSIXct(wake_time, origin = "1970-01-01", tz = "UTC")
-  ) %>%
-  ungroup()
+) %>% ungroup()
 ```
 
 
 
-```{r}
-data <- data %>% group_by(ID)%>%
-  mutate(
-    # Detect start of sleep when there are at least 4 consecutive inactive periods
-    sleep_start = consecutive_inactive >= 4 & lag(consecutive_inactive, default = 0) < 4,
-    # Detect end of sleep by change from inactive to active
-    sleep_end = !is_inactive & lag(is_inactive, default = FALSE)
-  )
-
-
-data <- data %>% group_by(ID, date) %>% mutate(
-    consecutive_inactive = with(rle(is_inactive), {
-      lengths_corrected <- lengths * values  # Only count lengths where is_inactive is TRUE
-      rep(lengths_corrected, lengths)   # Repeat these lengths according to run lengths
-    }))
-
-
-
-  rle_inactive )
-
-y <- c(TRUE,TRUE,TRUE,FALSE,FALSE,TRUE,TRUE,TRUE,FALSE)
-
-with(rle(x),rep(lengths, lengths))
-table(data$consecutive_inactive)
-```
-
-
-
-
-```{r}
-
-
-data <- data %>% group_by(ID) %>%
-  mutate(
-    time_diff = round(
-      difftime(date_time, 
-               lag(date_time, default = first(date_time)),
-               units = "hours"), 3),
-    cum_sum_activity = cumsum(is_inactive),
-    lag_12 = lag(cum_sum_activity, 12, default = first(cum_sum_activity)),
-    lag_12_activity = cum_sum_activity - lag_12,
-    is_asleep = lag_12_activity >= 4
-    ) %>%
-  ungroup() %>%
-  mutate(
-    # Adjust the date to the previous day if the activity is after midnight and before going to sleep
-    adjusted_date_time = if_else(hour(date_time) < 6 & !is_asleep,
-                                 date_time - days(1), 
-                                 date_time),
-    adjusted_date = as.Date(adjusted_date_time)
-  )
-
-  
-  
-data <- data %>% mutate(
-  cum_sum_activity = cumsum(is_inactive),
-  lag_12 = lag(is_yarrak, 12), # maximum amount of sleep hours
-  lag_12_activity = cum_sum_activity - lag_12, 
-  is_asleep = is_yarrak_3 >= 4) # minimum amount of sleep hours
-
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-```{r}
-data <- data %>%
-  mutate(
-    changed = is_inactive & (hour >= 20 | hour <= 10),  # Update the condition as needed
-    change_id = cumsum(changed != lag(changed, default = first(changed)))  
-    # Detect changes to start new blocks
-  ) %>%
-  group_by(ID, change_id) %>%
-  mutate(
-    block_duration = n(),  # Count observations per block
-    block_start = min(days_since_start),  # Get the start time of the block
-    block_end = max(days_since_start)  # Get the end time of the block
-  ) %>%
-  ungroup()
-```
-
-
-
-
-
-```{r}
-data$days_since_start
-# Assuming the data is already loaded and the columns 'is_inactive' and 'potential_sleep_block' have been set
-data <- data %>%
-  mutate(
-    changed = is_inactive & (hour >= 20 | hour <= 10),  # Update the condition as needed
-    change_id = cumsum(changed != lag(changed, default = first(changed)))  # Detect changes to start new blocks
-  ) %>%
-  group_by(ID, change_id) %>%
-  mutate(
-    block_duration = n(),  # Count observations per block
-    block_start = min(days_since_start),  # Get the start time of the block
-    block_end = max(days_since_start)  # Get the end time of the block
-  ) %>%
-  ungroup()
-```
-
-
-
-
-
-
-
-
-
-
-
-
-## Stuff
-
-
-
-
-```{r}
-id_1 <- playaround_2 %>% filter(ID == 1)
-```
-
-```{r}
-playaround <- data_filter_time_2
-```
-
-
-```{r}
-# Sort data by date_time
-playaround <- playaround %>% arrange(date_time)
-
-# Identify inactive periods by creating a binary column for activity
-data$is_inactive <- as.integer(
-  data$activity == 0)
-
-# Differentiate consecutive periods of inactivity
-data$inactive_block <- with(
-  rle(data$is_inactive), 
-  rep(seq_along(lengths), lengths))
-
-# Calculate the duration of each inactive period
-sleep_periods <- playaround %>%
-  filter(is_inactive == 1) %>%
-  group_by(inactive_block) %>%
-  summarise(sleep_start = min(date_time), 
-            sleep_end = max(date_time), 
-            inactive_hours = n()) %>%
-  filter(inactive_hours > 5) # Considering only periods longer than 5 hours
-
-# Filter for sleep periods between 8 PM and 10 AM
-sleep_periods <- sleep_periods %>%
-  filter(hour(sleep_start) >= 20 | hour(sleep_end) <= 10)
-
-# Merge sleep periods back to the main data to identify relevant observations
-playaround_2 <- left_join(
-  playaround, 
-  sleep_periods, 
-  by = "inactive_block")
-
-# Create 'observation_day' by adjusting the date based on sleep periods
-playaround_2$observation_day <- ifelse(
-  as.Date(playaround_2$date_time) < as.Date(playaround_2$sleep_end) & !is.na(playaround_2$sleep_end),
-  as.Date(playaround_2$date_time) - days(1),
-  as.Date(playaround_2$date_time)
-)
-
-# Clean up the data frame by removing unnecessary columns
-# participant_data <- participant_data %>% select(-c(inactive_block, is_inactive))
-
-# View adjusted data
-# head(participant_data)
-```
-
-
-
-```{r}
-play_2 <- data_filter_time_2
-```
-
-
-```{r}
-# Identify periods of inactivity (assuming zero activity indicates inactivity)
-data$is_inactive <- data$activity == 0
-
-# Determine the start of a potential sleep block
-data$potential_sleep_block <- data$is_inactive & (data$hour >= 20 | play_2$hour <= 10)
-
-
-
-
-# Calculate the start and end times of sleep blocks
-play_2 <- play_2 %>%
-  group_by(grp = cumsum(!potential_sleep_block)) %>%
-  mutate(sleep_start = ifelse(any(is_inactive), 
-                              first(date_time[is_inactive]), NA),
-         sleep_end = ifelse(any(is_inactive), last(date_time[is_inactive]), NA)) %>%
-  ungroup() %>%
-  select(-grp)
-
-# Assuming the experiment starts at midnight of the first recorded date
-experiment_start <- as.Date(min(participant_data$date_time))
-
-# Calculate the observation day based on the time and sleep blocks
-participant_data$observation_day <- as.Date(participant_data$date_time)
-for(i in 1:nrow(participant_data)) {
-  if(!is.na(participant_data$sleep_end[i]) && participant_data$date_time[i] <= participant_data$sleep_end[i]) {
-    participant_data$observation_day[i] <- as.Date(participant_data$sleep_start[i]) - days(1)
-  } else {
-    participant_data$observation_day[i] <- as.Date(participant_data$date_time[i])
-  }
-}
-
-# This will now give you a column with the adjusted observation day
-head(participant_data)
-
-```
-
-
-
-```{r}
-
-
-play_3 <- data_filter_time_2
-
-# Convert date_time to datetime object
-is(play_3$date_time) <- ymd_hms(play_3$date_time)
-
-# Create a new column to indicate if the person is asleep (activity = 0)
-data$asleep <- ifelse(data$activity == 0, 1, 0)
-
-# Determine the sleep blocks using rle (run length encoding)
-sleep_blocks <- rle(data$asleep)
-
-# Filter only the blocks where asleep == 1 and the length of the block is greater than 5
-sleep_periods <- which(sleep_blocks$values == 1 & sleep_blocks$lengths > 5)
-
-# Get the start times of these sleep periods
-sleep_start_times <- cumsum(c(1, sleep_blocks$lengths))[sleep_periods]
-
-# Adjust the dates based on these sleep start times
-data$day_of_observation <- data$date_time
-
-for (i in sleep_start_times) {
-  # The observations from the start of the sleep period back to the start of the day are considered the previous day
-  data$day_of_observation[(i-1):(i-6)] <- data$date_time[(i-1):(i-6)] - days(1)
-}
-
-# Now, you can use day_of_observation for your analyses
-
-```
-
-
-
-
-```{r}
-# Adjusting the 'awake_day' for times after midnight but part of a sleep session
-df$awake_day <- as.Date(df$date_time)  # Create an initial awake_day column
-
-# Function to adjust dates based on sleep periods
-adjust_dates <- function(row, sleep_blocks) {
-  for (i in 1:nrow(sleep_blocks)) {
-    if (row$date_time >= sleep_blocks$start_time[i] && row$date_time <= sleep_blocks$end_time[i] && hour(row$date_time) < 4) {
-      return(as.Date(row$date_time) - days(1))
-    }
-  }
-  return(as.Date(row$date_time))
-}
-
-# Apply the adjustment
-df$awake_day <- apply(df, 1, adjust_dates, sleep_blocks)
-
-```
-
-
-
-
-## New Variable: Time of Observation
-```{r}
-a <- data %>% 
-  mutate(
-    adjusted_date_time = if_else(
-      hour(date_time) < 4, date_time - days(1), date_time),
-    adjusted_date = as.Date(adjusted_date_time)
-  )
-
-# Group by participant and adjusted_date to find the last observation for each day
-a <- a %>%
-  group_by(id, adjusted_date) %>%
-  mutate(last_observation_time = max(date_time)) %>%
-  ungroup()
-
-
-x_2 <- x %>% filter(date == "2014-02-26")
-```
-
-
-```{r}
-dataa <- data %>% filter(is.na(activity))
-
-dataa <- dataa %>%
-  arrange(ID, date_time) %>%
-  group_by(ID) %>%
-  mutate(
-    time_diff = lead(date_time) - date_time
-  ) %>%
-  ungroup()
-
-
-dataa <- dataa %>%
-  mutate(
-    is_sleep_start = if_else(
-      time_diff >= hours(6), TRUE, FALSE, missing = FALSE))
-```
-
-
-
-```{r}
-a <- data %>% 
-  mutate(
-    adjusted_date_time = if_else(
-      hour(date_time) < 4, date_time - days(1), date_time),
-    adjusted_date = as.Date(adjusted_date_time)
-  )
-
-# Group by participant and adjusted_date to find the last observation for each day
-a <- a %>%
-  group_by(id, adjusted_date) %>%
-  mutate(last_observation_time = max(date_time)) %>%
-  ungroup()
-
-
-x_2 <- x %>% filter(date == "2014-02-26")
-```
-
-
-```{r}
-
-dataa <- data %>% filter(is.na(activity))
-
-dataa <- dataa %>%
-  arrange(ID, date_time) %>%
-  group_by(ID) %>%
-  mutate(
-    time_diff = lead(date_time) - date_time
-  ) %>%
-  ungroup()
-
-
-dataa <- dataa %>%
-  mutate(
-    is_sleep_start = if_else(
-      time_diff >= hours(6), TRUE, FALSE, missing = FALSE))
-
-id_1 <- data %>% filter(ID == 1)
-write.csv(id_1, "x.csv")
-```
 
 
 
