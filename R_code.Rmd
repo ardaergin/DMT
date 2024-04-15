@@ -672,7 +672,7 @@ model <- lme4::lmer(
     appCat.unknown + 
     appCat.utilities + 
     appCat.weather + 
-    (1|ID), 
+    (1 + time|ID), 
   data = aggregated_data)
 summary(model)
 ```
@@ -680,6 +680,156 @@ summary(model)
 
 ```{r}
 write.csv(aggregated_data, "data_aggregated.csv")
+```
+
+
+
+
+# Network Shit
+
+```{r}
+load("/Users/arda/Downloads/NatureMethodsPrimer_NetworkAnalysis-main/Psychopathology/data/clean_network.RData")
+```
+
+
+```{r}
+data <- data %>% mutate(
+  beep = case_when(
+    hour == 9 & !is.na(mood) ~ 1,
+    hour == 12 & !is.na(mood) ~ 2,
+    hour == 15 & !is.na(mood) ~ 3,
+    hour == 18 & !is.na(mood) ~ 4,
+    hour == 21 & !is.na(mood) ~ 5,
+    TRUE ~ 0
+  )
+)
+a <- data %>% filter(ID == 1)
+write.csv(a, "a.csv")
+
+sum(data$possible_beep == 1)
+sum(!is.na(data$mood))
+
+# Generate additional times
+additional_times <- c("09:00:01", "12:00:01", "15:00:01", "18:00:01", "21:00:01")
+dates <- unique(as.Date(data$date_time))
+participants <- unique(data$ID)
+
+# Create a data frame of all combinations of dates, times, and participants
+expanded_data <- expand.grid(
+  date = dates, 
+  time = additional_times, 
+  ID = participants)
+
+expanded_data$date_time <- as.POSIXct(paste(expanded_data$date, expanded_data$time))
+
+# Select only relevant columns and sort
+expanded_data <- expanded_data[, c("ID", "date_time")]
+
+# Combine with the original data
+combined_data <- rbind(data, expanded_data)
+
+# Remove duplicate rows and sort by date_time
+combined_data <- combined_data %>%
+  arrange(ID, date_time) %>%
+  distinct()
+
+# Fill in NA for columns not present in expanded_data
+combined_data$mood[is.na(combined_data$mood)] <- NA
+
+
+```
+
+
+
+```{r}
+# Generate additional times and beeps
+additional_times <- c(
+  "09:00:01", 
+  "12:00:01", 
+  "15:00:01", 
+  "18:00:01", 
+  "21:00:01")
+beep_identifiers <- c(1, 2, 3, 4, 5) 
+dates <- unique(as.Date(data$date_time))
+participants <- unique(data$ID)
+
+# Map times to beep identifiers
+time_to_beep <- setNames(beep_identifiers, additional_times)
+# Create a data frame of all combinations of dates, times, and participants
+expanded_data <- expand.grid(date = dates, time = additional_times, ID = participants)
+expanded_data$date_time <- as.POSIXct(paste(expanded_data$date, expanded_data$time))
+expanded_data$beep_number <- time_to_beep[as.character(expanded_data$time)]
+
+# Initialize columns for expanded_data that are in data but not in expanded_data
+additional_columns <- setdiff(names(data), names(expanded_data))
+for (col in additional_columns) {
+  expanded_data[[col]] <- NA
+}
+
+# Combine original and expanded data
+data$beep_number <- NA
+combined_data <- rbind(data, expanded_data)
+
+# Remove duplicate rows and sort by date_time
+combined_data <- combined_data %>%
+  arrange(ID, date_time) %>%
+  distinct()
+```
+
+
+```{r}
+library(zoo)
+
+# Make sure it is sorted by ID and date_time
+combined_data <- combined_data %>%
+  arrange(ID, date_time)
+
+# Fill beep_number NA values using zoo::na.locf()
+combined_data$beepo <- na.locf(combined_data$beep_number, na.rm = FALSE, fromLast = TRUE)
+
+
+# Example aggregation: Calculate the mean mood for each beep interval for each participant
+# You can change this to match the specific columns and summary statistics you need
+aggregated_data <- combined_data %>%
+  group_by(ID, beep_number) %>%
+  summarize(mean_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
+
+aggregated_data <- combined_data %>%
+  group_by(ID, date, beepo) %>%
+  summarise(
+    mood = mean(mood, na.rm = TRUE),
+    arousal = mean(circumplex.arousal, na.rm = TRUE),
+    valence = mean(circumplex.valence, na.rm = TRUE),
+    activity = mean(activity, na.rm = TRUE),
+    # screen???
+    call = sum(call, na.rm = TRUE),
+    sms = sum(sms, na.rm = TRUE),
+    appCat.builtin = sum(appCat.builtin, na.rm = TRUE),
+    appCat.communication = sum(appCat.communication, na.rm = TRUE),
+    appCat.entertainment = sum(appCat.entertainment, na.rm = TRUE),
+    appCat.finance = sum(appCat.finance, na.rm = TRUE),
+    appCat.game = sum(appCat.game, na.rm = TRUE),
+    appCat.office = sum(appCat.office, na.rm = TRUE),
+    appCat.other = sum(appCat.other, na.rm = TRUE),
+    appCat.social = sum(appCat.social, na.rm = TRUE),
+    appCat.travel = sum(appCat.travel, na.rm = TRUE),
+    appCat.unknown = sum(appCat.unknown, na.rm = TRUE),
+    appCat.utilities = sum(appCat.utilities, na.rm = TRUE), 
+    appCat.weather = sum(appCat.weather, na.rm = TRUE), 
+    .groups = "drop")
+```
+
+
+```{r}
+install.packages("imputeTS")
+
+imputed <- imputeTS::na_kalman(aggregated_data)
+```
+
+
+
+```{r}
+
 ```
 
 
