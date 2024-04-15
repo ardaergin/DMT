@@ -481,36 +481,157 @@ data <- x
 ```
 
 
+```{r}
+id <- data %>% filter(ID == 17)
+
+id_2_days <- id %>% filter(days_since_start == 0 | days_since_start == 1)
+
+
+unique(id$days_since_start)
+```
+
+
+
 ## Trials
 ```{r}
 # Sort data by date_time
 data <- data %>% arrange(ID, date_time)
 
-# Flagging inactive periods potentially indicating sleep
+# Potential Sleep Hour 
 data <- data %>% mutate(
-  is_inactive = dplyr::case_when(
-    is.na(activity) ~ FALSE,
-    activity == 0 ~ TRUE,
-    TRUE ~ FALSE),
-  potential_sleep_hour = (hour >= 20 | hour <= 10))
+  after_midnight_activity = (hour >= 0 | hour <= 6))
 ```
 
 
 ```{r}
 # Column for the time difference between 
 # the current observation and the last observation
-data <- data %>%
-  group_by(ID) %>%
-  mutate(
-    time_diff = round(
-      difftime(date_time, 
-               lag(date_time),
-               units = "hours"),3)) %>%
+data <- data %>% group_by(ID) %>% mutate(
+  # For every observation, getting the difference between the previous
+  time_diff = round(
+    difftime(date_time, lag(date_time),
+             units = "hours"), 3),
+  # Wake up Hour (first observation after the difference)
+  potential_wakeup_hour = (hour >= 5 & hour <= 12),
+  # Gap based on both these variables
+  possible_sleep_gap = (time_diff >= 6 & time_diff <= 15) & 
+    (potential_wakeup_hour == TRUE)) %>% 
   ungroup()
 ```
 
 
 ```{r}
+# Inactivity
+data <- data %>% mutate(
+  is_inactive = dplyr::case_when(
+    is.na(activity) ~ FALSE,
+    activity == 0 ~ TRUE,
+    TRUE ~ FALSE))
+
+# Applying a run-length encoding to count consecutive inactive periods
+data <- data %>% group_by(ID) %>% mutate(
+    consecutive_inactive = with(rle(is_inactive), {
+      lengths_corrected <- lengths * values  # Only count lengths where is_inactive is TRUE
+      rep(lengths_corrected, lengths)   # Repeat these lengths according to run lengths
+    })) %>% 
+  ungroup()
+```
+
+
+```{r}
+data <- data %>% group_by(ID)%>% mutate(
+    sleep_start = (
+      consecutive_inactive >= 4 & 
+        lag(consecutive_inactive, default = 0) < 4) | 
+      lag(possible_sleep_gap, default = FALSE),
+    sleep_end = (
+      consecutive_inactive >= 4 & 
+        lead(consecutive_inactive, default = 0) < 4) | 
+      possible_sleep_gap,
+    session_id = cumsum(sleep_start)
+  )
+
+unique(data$session_id)
+```
+
+```{r}
+data_summarized <- data %>%
+  group_by(ID, session_id) %>%
+  summarize(
+    bedtime = if(any(sleep_start)) min(date_time[sleep_start], na.rm = TRUE) else NA_real_,
+    wake_time = if(any(sleep_end)) max(date_time[sleep_end], na.rm = TRUE) else NA_real_,
+    .groups = 'drop'
+  ) %>%
+  ungroup() %>%
+  mutate(
+    # Ensure that NA values are returned as NA of type POSIXct to maintain type consistency
+    bedtime = as.POSIXct(bedtime, origin = "1970-01-01", tz = "UTC"),
+    wake_time = as.POSIXct(wake_time, origin = "1970-01-01", tz = "UTC")
+  ) %>%
+  ungroup()
+```
+
+
+
+```{r}
+data <- data %>% group_by(ID)%>%
+  mutate(
+    # Detect start of sleep when there are at least 4 consecutive inactive periods
+    sleep_start = consecutive_inactive >= 4 & lag(consecutive_inactive, default = 0) < 4,
+    # Detect end of sleep by change from inactive to active
+    sleep_end = !is_inactive & lag(is_inactive, default = FALSE)
+  )
+
+
+data <- data %>% group_by(ID, date) %>% mutate(
+    consecutive_inactive = with(rle(is_inactive), {
+      lengths_corrected <- lengths * values  # Only count lengths where is_inactive is TRUE
+      rep(lengths_corrected, lengths)   # Repeat these lengths according to run lengths
+    }))
+
+
+
+  rle_inactive )
+
+y <- c(TRUE,TRUE,TRUE,FALSE,FALSE,TRUE,TRUE,TRUE,FALSE)
+
+with(rle(x),rep(lengths, lengths))
+table(data$consecutive_inactive)
+```
+
+
+
+
+```{r}
+
+
+data <- data %>% group_by(ID) %>%
+  mutate(
+    time_diff = round(
+      difftime(date_time, 
+               lag(date_time, default = first(date_time)),
+               units = "hours"), 3),
+    cum_sum_activity = cumsum(is_inactive),
+    lag_12 = lag(cum_sum_activity, 12, default = first(cum_sum_activity)),
+    lag_12_activity = cum_sum_activity - lag_12,
+    is_asleep = lag_12_activity >= 4
+    ) %>%
+  ungroup() %>%
+  mutate(
+    # Adjust the date to the previous day if the activity is after midnight and before going to sleep
+    adjusted_date_time = if_else(hour(date_time) < 6 & !is_asleep,
+                                 date_time - days(1), 
+                                 date_time),
+    adjusted_date = as.Date(adjusted_date_time)
+  )
+
+  
+  
+data <- data %>% mutate(
+  cum_sum_activity = cumsum(is_inactive),
+  lag_12 = lag(is_yarrak, 12), # maximum amount of sleep hours
+  lag_12_activity = cum_sum_activity - lag_12, 
+  is_asleep = is_yarrak_3 >= 4) # minimum amount of sleep hours
 
 ```
 
@@ -532,7 +653,8 @@ data <- data %>%
 data <- data %>%
   mutate(
     changed = is_inactive & (hour >= 20 | hour <= 10),  # Update the condition as needed
-    change_id = cumsum(changed != lag(changed, default = first(changed)))  # Detect changes to start new blocks
+    change_id = cumsum(changed != lag(changed, default = first(changed)))  
+    # Detect changes to start new blocks
   ) %>%
   group_by(ID, change_id) %>%
   mutate(
@@ -738,41 +860,46 @@ df$awake_day <- apply(df, 1, adjust_dates, sleep_blocks)
 
 
 
-# Aggregating
-
-We have a couple of options
-
-The most straightforward one (and kind of bad):
+## New Variable: Time of Observation
 ```{r}
-# aggregating the data by date, for all participants
-new_data <- data_filter_time %>%
-  group_by(date, ID) %>%
-  summarise(
-    variable_mean = mean(mood, na.rm = TRUE),
-    circumplex.arousal = mean(circumplex.arousal, na.rm = TRUE),
-    circumplex.valence = mean(circumplex.valence, na.rm = TRUE),
-    activity = mean(activity, na.rm = TRUE),
-    # screen???
-    call = sum(call, na.rm = TRUE),
-    sms = sum(sms, na.rm = TRUE),
-    appCat.builtin = sum(appCat.builtin, na.rm = TRUE),
-    appCat.communication = sum(appCat.communication, na.rm = TRUE),
-    appCat.entertainment = sum(appCat.entertainment, na.rm = TRUE),
-    appCat.finance = sum(appCat.finance, na.rm = TRUE),
-    appCat.game = sum(appCat.game, na.rm = TRUE),
-    appCat.office = sum(appCat.office, na.rm = TRUE),
-    appCat.other = sum(appCat.other, na.rm = TRUE),
-    appCat.social = sum(appCat.social, na.rm = TRUE),
-    appCat.travel = sum(appCat.travel, na.rm = TRUE),
-    appCat.unknown = sum(appCat.unknown, na.rm = TRUE),
-    appCat.utilities = sum(appCat.utilities, na.rm = TRUE), 
-    appCat.weather = sum(appCat.weather, na.rm = TRUE), 
-    .groups = "drop")
+a <- data %>% 
+  mutate(
+    adjusted_date_time = if_else(
+      hour(date_time) < 4, date_time - days(1), date_time),
+    adjusted_date = as.Date(adjusted_date_time)
+  )
 
+# Group by participant and adjusted_date to find the last observation for each day
+a <- a %>%
+  group_by(id, adjusted_date) %>%
+  mutate(last_observation_time = max(date_time)) %>%
+  ungroup()
+
+
+x_2 <- x %>% filter(date == "2014-02-26")
 ```
 
 
-## New Variable: Time of Observation
+```{r}
+dataa <- data %>% filter(is.na(activity))
+
+dataa <- dataa %>%
+  arrange(ID, date_time) %>%
+  group_by(ID) %>%
+  mutate(
+    time_diff = lead(date_time) - date_time
+  ) %>%
+  ungroup()
+
+
+dataa <- dataa %>%
+  mutate(
+    is_sleep_start = if_else(
+      time_diff >= hours(6), TRUE, FALSE, missing = FALSE))
+```
+
+
+
 ```{r}
 a <- data %>% 
   mutate(
@@ -810,12 +937,50 @@ dataa <- dataa %>%
     is_sleep_start = if_else(
       time_diff >= hours(6), TRUE, FALSE, missing = FALSE))
 
-id_1 <- dataa %>% filter(ID == 1)
-
+id_1 <- data %>% filter(ID == 1)
+write.csv(id_1, "x.csv")
 ```
 
 
 
+
+
+
+
+# Aggregating
+
+We have a couple of options
+
+The most straightforward one (and kind of bad):
+```{r}
+# aggregating the data by date, for all participants
+new_data <- data_filter_time_2 %>%
+  group_by(date, ID) %>%
+  summarise(
+    variable_mean = mean(mood, na.rm = TRUE),
+    circumplex.arousal = mean(circumplex.arousal, na.rm = TRUE),
+    circumplex.valence = mean(circumplex.valence, na.rm = TRUE),
+    activity = mean(activity, na.rm = TRUE),
+    # screen???
+    call = sum(call, na.rm = TRUE),
+    sms = sum(sms, na.rm = TRUE),
+    appCat.builtin = sum(appCat.builtin, na.rm = TRUE),
+    appCat.communication = sum(appCat.communication, na.rm = TRUE),
+    appCat.entertainment = sum(appCat.entertainment, na.rm = TRUE),
+    appCat.finance = sum(appCat.finance, na.rm = TRUE),
+    appCat.game = sum(appCat.game, na.rm = TRUE),
+    appCat.office = sum(appCat.office, na.rm = TRUE),
+    appCat.other = sum(appCat.other, na.rm = TRUE),
+    appCat.social = sum(appCat.social, na.rm = TRUE),
+    appCat.travel = sum(appCat.travel, na.rm = TRUE),
+    appCat.unknown = sum(appCat.unknown, na.rm = TRUE),
+    appCat.utilities = sum(appCat.utilities, na.rm = TRUE), 
+    appCat.weather = sum(appCat.weather, na.rm = TRUE), 
+    .groups = "drop")
+
+
+lme4::lmer()
+```
 
 
 
