@@ -13,6 +13,9 @@ library(ggplot2)
 library(patchwork)
 library(scales)
 library(lubridate)
+# Analysis
+library(lme4)
+library(Matrix)
 ```
 
 ```{r}
@@ -568,6 +571,14 @@ data <- data %>%
 
 
 ## WORKING
+```{r}
+# Determine if sleep occurred after midnight
+data <- data %>% mutate(
+    slept_after_midnight = hour(date_time) >= 0 & hour(date_time) <= 6 & sleep == 1)
+
+```
+
+
 
 
 ## Sleep
@@ -596,17 +607,14 @@ data <- data %>% group_by(ID)%>% mutate(
 
 # Aggregating
 
-We have a couple of options
-
-The most straightforward one (and kind of bad):
 ```{r}
 # aggregating the data by date, for all participants
-new_data <- data_filter_time_2 %>%
+aggregated_data <- data %>%
   group_by(date, ID) %>%
   summarise(
-    variable_mean = mean(mood, na.rm = TRUE),
-    circumplex.arousal = mean(circumplex.arousal, na.rm = TRUE),
-    circumplex.valence = mean(circumplex.valence, na.rm = TRUE),
+    mood = mean(mood, na.rm = TRUE),
+    arousal = mean(circumplex.arousal, na.rm = TRUE),
+    valence = mean(circumplex.valence, na.rm = TRUE),
     activity = mean(activity, na.rm = TRUE),
     # screen???
     call = sum(call, na.rm = TRUE),
@@ -625,10 +633,40 @@ new_data <- data_filter_time_2 %>%
     appCat.weather = sum(appCat.weather, na.rm = TRUE), 
     .groups = "drop")
 
+# Standandardizing
+aggregated_data_2 <- aggregated_data %>%
+  mutate_at(vars(arousal:appCat.weather), scale)
 
-lme4::lmer()
+
+# Model
+model <- lme4::lmer(
+  mood ~ arousal + 
+    valence + 
+    activity + 
+    call + 
+    sms + 
+    appCat.builtin + 
+    appCat.communication + 
+    appCat.entertainment + 
+    appCat.finance + 
+    appCat.game + 
+    appCat.office + 
+    appCat.other + 
+    appCat.social + 
+    appCat.travel + 
+    appCat.unknown + 
+    appCat.utilities + 
+    appCat.weather + 
+    (1|ID), 
+  data = aggregated_data_2)
+summary(model)
 ```
 
+
+
+```{r}
+
+```
 
 
 
