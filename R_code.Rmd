@@ -827,11 +827,50 @@ imputed <- imputeTS::na_kalman(aggregated_data)
 ```
 
 
-
 ```{r}
-
+data_normal <- imputed %>%
+  mutate_at(vars(arousal:appCat.weather), scale)
 ```
 
+
+
+```{r}
+write.csv(data_normal, "data_for_analysis.csv")
+
+
+colnames(aggregated_data)
+variables_network <- c("mood", "arousal", "valence", "activity", "call", "sms", "appCat.builtin", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", "appCat.office", "appCat.other", "appCat.social", "appCat.travel", "appCat.unknown", "appCat.utilities", "appCat.weather")
+
+data_normal <- read.csv("data_for_analysis.csv")
+
+variables_network <- c("mood", "arousal", "valence", "activity", "appCat.social")
+# "call", "sms", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", 
+
+library(mlVAR)
+ml_mod <- mlVAR::mlVAR(
+  data_normal, 
+  vars = variables_network, 
+  idvar = "ID", 
+  dayvar = "date", 
+  estimator = "lmer", 
+  beepvar = "beepo", 
+  temporal = "correlated", 
+  contemporaneous = "correlated")
+```
+
+
+```{r}
+temp <- plot(ml_mod, 
+             "temporal", 
+             title="Temporal Network",
+             layout = "circle")
+
+plot(ml_mod, "contemporaneous", title="Contemporaneous Network", rule = "and")
+
+plot(ml_mod, "between", title="Between-Subject Network", rule = "and")
+
+summary(ml_mod)
+```
 
 
 
