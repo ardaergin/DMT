@@ -48,7 +48,7 @@ colnames(data_0)[1] <- "obs_number"
 data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
 ```
 
-fixing time
+fixing time:
 ```{r}
 # Checking if there is any NAs in the `time` variable
 any(is.na(data_1$time))
@@ -81,10 +81,8 @@ data_id_1 <- data %>% filter(ID == 1)
 
 
 
-
-
-# Investigating Variables
-## (ALL) Checking Range
+# Cleaning
+## Checking Ranges
 ```{r}
 for(i in 1:ncol(data)){
   cat("\n=========\n")
@@ -97,11 +95,16 @@ for(i in 1:ncol(data)){
 Based on these, cleaning the necessary data:
 ```{r}
 # Taking a look at the problematic data
-problematic <- data %>% filter(appCat.builtin < 0)
+problematic <- data %>% filter(
+  appCat.builtin < 0 | appCat.entertainment < 0)
 problematic
 
 # Filtering these 3 responses 
-data_cleaner <- data %>% filter(appCat.builtin >= 0 | is.na(appCat.builtin))
+data_cleaner <- data %>% filter(
+  (appCat.builtin >= 0 | is.na(appCat.builtin)) & 
+  (appCat.entertainment >= 0 | is.na(appCat.entertainment))
+  )
+
 data <- data_cleaner
 ```
 
@@ -115,6 +118,14 @@ duplicates <- duplicated(data)
 data[duplicates, ]
 ```
 
+There are no duplicate rows in the dataset.
+
+```{r}
+write.csv(data, "data_0.csv")
+```
+
+
+# Investigating Variables
 
 ## Mood
 ```{r}
@@ -244,20 +255,6 @@ data <- data %>%
 data <- data %>%
   mutate(hour = format(date_time, "%H"))
 data$hour <- as.numeric(data$hour)
-
-# Creating Variable: the day of the week (of Observation)
-data <- data %>%
-  mutate(weekday = weekdays(date_time),
-         weekday = factor(
-           weekday, 
-           levels = c("Monday", "Tuesday", 
-                      "Wednesday", "Thursday", 
-                      "Friday", "Saturday", 
-                      "Sunday")))
-
-# Creating Variable: the week of the year (of Observation)
-data <- data %>%
-  mutate(week_of_year = lubridate::week(date_time))
 ```
 
 
@@ -322,87 +319,7 @@ hour_activity %>%
 ```
 
 
-### Visual: Weekdays
-```{r}
-# Summarizing Per Weekday
-weekday_summary <- data %>%
-  group_by(weekday) %>%
-  summarise(
-    mean_mood = mean(mood, na.rm = TRUE),
-    sd_mood = sd(mood, na.rm = TRUE),
-    n = sum(!is.na(mood)),
-    sem = sd_mood / sqrt(n),
-    ci_lower = mean_mood - qnorm(0.975) * sem,
-    ci_upper = mean_mood + qnorm(0.975) * sem
-  )
-
-# Bar Plot
-weekday_summary %>%
-  ggplot(aes(
-    x = weekday, 
-    y = mean_mood)) + 
-  geom_col(color = "black", 
-           fill = "skyblue1") +
-  geom_errorbar(aes(ymin = ci_lower, 
-                    ymax = ci_upper), 
-                width = .2) +  
-  geom_text(aes(
-    label = paste("n =", n), 
-    y = mean_mood + 0.02), 
-    vjust = -5.5,
-    family = "Times New Roman") + 
-  theme_classic(base_family = "Times") +
-  labs(
-    title = "Mean Mood per Weekday",
-    x = "Weekday",
-    y = "Mean Mood"
-  ) + 
-  coord_cartesian(ylim = c(6.8,7.5))
-```
-
-
-### Visual: Week of Year
-```{r}
-# Summarizing Per Weekday
-week_summary <- data %>%
-  group_by(week_of_year) %>%
-  summarise(
-    mean_mood = mean(mood, na.rm = TRUE),
-    sd_mood = sd(mood, na.rm = TRUE),
-    n = sum(!is.na(mood)),
-    sem = sd_mood / sqrt(n),
-    ci_lower = mean_mood - qnorm(0.975) * sem,
-    ci_upper = mean_mood + qnorm(0.975) * sem
-  )
-
-# Bar Plot
-week_summary %>%
-  ggplot(aes(
-    x = week_of_year, 
-    y = mean_mood)) + 
-  geom_col(color = "black", 
-           fill = "skyblue") +
-  geom_errorbar(aes(ymin = ci_lower, 
-                    ymax = ci_upper), 
-                width = .2) +  
-  geom_text(aes(
-    label = n, 
-    y = mean_mood + 0.02), 
-    vjust = -10,
-    family = "Times New Roman") + 
-  theme_classic(base_family = "Times") +
-  labs(
-    title = "Mean Mood per Week of the Year",
-    x = "Week of the Year",
-    y = "Mean Mood"
-  ) + 
-  coord_cartesian(ylim = c(6,7.6))
-  
-```
-
-
-
-### *** Filtering Time ***
+### FILTER Time
 
 ```{r}
 table(data$date)
@@ -416,7 +333,8 @@ table(data$date)
 # A bit more conservative: 
 data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
 # > 4000
-data_filter_time_2 <- data %>% filter(date > "2014-03-20" & date < "2014-05-05")
+data_filter_time_2 <- data %>% filter(
+  date > "2014-03-20" & date < "2014-05-05")
 ```
 
 
@@ -441,22 +359,12 @@ data_filter_time_2 %>% ggplot(aes(x = date)) +
 data <- data_filter_time_2
 ```
 
-
-# Fixing Days
-
-## Observation Day
 ```{r}
-# Adding a days_since_start column
-data <- data %>% mutate(
-  days_since_start = as.numeric(
-    difftime(date, min(date), units = "days")))
-
-# Check
-unique(data$days_since_start)
+write.csv(data, "data_1.csv")
 ```
 
 
-## Taking a Look at Activity
+## Activity
 ```{r}
 activity_count_per_hour <- data %>%
   filter(!is.na(activity)) %>%
@@ -498,6 +406,17 @@ write.csv(data, "data_1.csv")
 # Sleep
 ```{r}
 data <- x
+```
+
+## Observation Day
+```{r}
+# Adding a days_since_start column
+data <- data %>% mutate(
+  days_since_start = as.numeric(
+    difftime(date, min(date), units = "days")))
+
+# Check
+unique(data$days_since_start)
 ```
 
 ```{r}
@@ -821,8 +740,7 @@ aggregated_data <- combined_data %>%
 
 
 ```{r}
-install.packages("imputeTS")
-
+library(imputeTS)
 imputed <- imputeTS::na_kalman(aggregated_data)
 ```
 
@@ -846,6 +764,8 @@ data_normal <- read.csv("data_for_analysis.csv")
 variables_network <- c("mood", "arousal", "valence", "activity", "appCat.social")
 # "call", "sms", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", 
 
+# multilevel vector autoregressive (mlVAR) model, 
+# also regarded as a special case of the dynamic structural equation model (DSEM)
 library(mlVAR)
 ml_mod <- mlVAR::mlVAR(
   data_normal, 
