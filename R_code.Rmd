@@ -19,6 +19,11 @@ library(Matrix)
 
 library(imputeTS)
 library(zoo)
+
+library(mlVAR)
+library(igraph)
+
+library(mHMMbayes)
 ```
 
 ```{r}
@@ -51,6 +56,18 @@ colnames(data_0)[1] <- "obs_number"
 data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
 ```
 
+```{r}
+participants <- unique(data_raw$id)
+set.seed(17042024)
+test_participants <- sample(participants, length(participants)* 1/4)
+
+test_set <- data_1 %>% filter(ID %in% test_participants)
+
+`%not_in%` <- purrr::negate(`%in%`)
+train_set <- data_1 %>% dplyr::filter(ID %not_in% test_participants)
+unique(as.numeric(train_set$ID))
+```
+
 fixing time:
 ```{r}
 # Checking if there is any NAs in the `time` variable
@@ -81,6 +98,7 @@ Looking at Just one Individual
 ```{r}
 data_id_1 <- data %>% filter(ID == 1)
 ```
+
 
 
 
@@ -364,8 +382,11 @@ data <- data_filter_time_2
 
 ```{r}
 data_to_write <- data
+data_to_write <- data_to_write %>% mutate(
+  date_time = format(date_time, format="%Y-%m-%d %H:%M:%S"))
 data_to_write$date_time <- as.character(data_to_write$date_time)
-write.csv(data, "data_1.csv")
+
+write.csv(data_to_write, "data_1.csv")
 ```
 
 
@@ -443,18 +464,24 @@ combined_data <- rbind(data, expanded_data)
 combined_data <- combined_data %>%
   arrange(ID, date_time) %>%
   distinct()
-```
 
-Then aggregating the dataset based on beeps.
-```{r}
 # Make sure it is sorted by ID and date_time
 combined_data <- combined_data %>%
   arrange(ID, date_time)
 
 # Fill beep_number NA values using zoo::na.locf()
-combined_data$beepo <- na.locf(combined_data$beep_number, na.rm = FALSE, fromLast = TRUE)
+combined_data$beepo <- zoo::na.locf(
+  combined_data$beep_number, 
+  na.rm = FALSE, 
+  fromLast = TRUE)
 
+combined_data$beepo2 <- zoo::na.locf(
+  combined_data$beep_number, 
+  na.rm = FALSE)
+```
 
+Then aggregating the dataset based on beeps.
+```{r}
 # Example aggregation: Calculate the mean mood for each beep interval for each participant
 # You can change this to match the specific columns and summary statistics you need
 aggregated_data <- combined_data %>%
@@ -519,8 +546,15 @@ data_normal <- imputed %>%
 
 
 ```{r}
-data <- x
+# data <- combined_data
 ```
+
+
+```{r}
+# 21 - 12
+data <- data %>% filter(beepo2 == 5 | beepo2 == 1)
+```
+
 
 ## Observation Day
 ```{r}
@@ -721,70 +755,10 @@ write.csv(aggregated_data, "data_aggregated.csv")
 # Network Shit
 
 ```{r}
-load("/Users/arda/Downloads/NatureMethodsPrimer_NetworkAnalysis-main/Psychopathology/data/clean_network.RData")
+load("ml_mod.RData")
 ```
 
-
 ```{r}
-data <- data %>% mutate(
-  beep = case_when(
-    hour == 9 & !is.na(mood) ~ 1,
-    hour == 12 & !is.na(mood) ~ 2,
-    hour == 15 & !is.na(mood) ~ 3,
-    hour == 18 & !is.na(mood) ~ 4,
-    hour == 21 & !is.na(mood) ~ 5,
-    TRUE ~ 0
-  )
-)
-a <- data %>% filter(ID == 1)
-write.csv(a, "a.csv")
-
-sum(data$possible_beep == 1)
-sum(!is.na(data$mood))
-
-# Generate additional times
-additional_times <- c("09:00:01", "12:00:01", "15:00:01", "18:00:01", "21:00:01")
-dates <- unique(as.Date(data$date_time))
-participants <- unique(data$ID)
-
-# Create a data frame of all combinations of dates, times, and participants
-expanded_data <- expand.grid(
-  date = dates, 
-  time = additional_times, 
-  ID = participants)
-
-expanded_data$date_time <- as.POSIXct(paste(expanded_data$date, expanded_data$time))
-
-# Select only relevant columns and sort
-expanded_data <- expanded_data[, c("ID", "date_time")]
-
-# Combine with the original data
-combined_data <- rbind(data, expanded_data)
-
-# Remove duplicate rows and sort by date_time
-combined_data <- combined_data %>%
-  arrange(ID, date_time) %>%
-  distinct()
-
-# Fill in NA for columns not present in expanded_data
-combined_data$mood[is.na(combined_data$mood)] <- NA
-
-
-```
-
-
-
-
-
-
-
-
-
-```{r}
-write.csv(data_normal, "data_for_analysis.csv")
-
-
-colnames(aggregated_data)
 variables_network <- c("mood", "arousal", "valence", "activity", "call", "sms", "appCat.builtin", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", "appCat.office", "appCat.other", "appCat.social", "appCat.travel", "appCat.unknown", "appCat.utilities", "appCat.weather")
 
 data_normal <- read.csv("data_for_analysis.csv")
@@ -808,7 +782,6 @@ ml_mod <- mlVAR::mlVAR(
 
 
 ```{r}
-load("ml_mod.RData")
 temp <- plot(ml_mod, 
              "temporal", 
              title="Temporal Network",
@@ -824,9 +797,6 @@ summary(ml_mod)
 
 
 ```{r}
-library(mlVAR)
-library(igraph)
-
 # Assume ml_mod is already fitted
 temp <- plot(ml_mod, 
              plotType = "temporal", 
@@ -860,10 +830,53 @@ qgraph::qgraph(adj_matrix,
        edge.color = "black",
        edge.width = 2,
        vsize = 5,
-       color = "skyblue")
-
-
+       color = "skyblue") 
 ```
+
+
+
+
+
+
+
+# Bayes stuff
+
+```{r}
+# mHMMbayes::
+
+model <- mHMMbayes::mHMM(
+  y = list(mood = aggregated_data$mood), # Add other response variables as needed
+  id = aggregated_data$ID, 
+  data = aggregated_data, 
+  n_states = 3, # Example: 3 hidden states
+  covars = list("trans" = ~ arousal + valence) # Example covariates for transitions
+)
+?mHMMbayes::mHMM
+# Initial values (hypothetical)
+start_values <- list(
+  startProbs = rep(1/3, 3),
+  transProbs = matrix(c(.8, .1, .1, .1, .8, .1, .1, .1, .8), nrow = 3),
+  emissionProbs = list(mood = rep(1/3, 3))
+)
+
+# Fit the model
+fitted_model <- fit_model(model, start_values = start_values, iter = 10000, burnin = 1000)
+
+# Check results
+summary(fitted_model)
+```
+
+
+# Clustering
+```{r}
+data <- data %>% mutate(
+  mood_cat = )
+```
+
+
+
+
+
 
 
 
