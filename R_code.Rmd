@@ -13,6 +13,17 @@ library(ggplot2)
 library(patchwork)
 library(scales)
 library(lubridate)
+# Analysis
+library(lme4)
+library(Matrix)
+
+library(imputeTS)
+library(zoo)
+
+library(mlVAR)
+library(igraph)
+
+library(mHMMbayes)
 ```
 
 ```{r}
@@ -45,7 +56,19 @@ colnames(data_0)[1] <- "obs_number"
 data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
 ```
 
-fixing time
+```{r}
+participants <- unique(data_raw$id)
+set.seed(17042024)
+test_participants <- sample(participants, length(participants)* 1/4)
+
+test_set <- data_1 %>% filter(ID %in% test_participants)
+
+`%not_in%` <- purrr::negate(`%in%`)
+train_set <- data_1 %>% dplyr::filter(ID %not_in% test_participants)
+unique(as.numeric(train_set$ID))
+```
+
+fixing time:
 ```{r}
 # Checking if there is any NAs in the `time` variable
 any(is.na(data_1$time))
@@ -79,9 +102,8 @@ data_id_1 <- data %>% filter(ID == 1)
 
 
 
-
-# Investigating Variables
-## (ALL) Checking Range
+# Cleaning
+## Checking Ranges
 ```{r}
 for(i in 1:ncol(data)){
   cat("\n=========\n")
@@ -94,14 +116,37 @@ for(i in 1:ncol(data)){
 Based on these, cleaning the necessary data:
 ```{r}
 # Taking a look at the problematic data
-problematic <- data %>% filter(appCat.builtin < 0)
+problematic <- data %>% filter(
+  appCat.builtin < 0 | appCat.entertainment < 0)
 problematic
 
 # Filtering these 3 responses 
-data_cleaner <- data %>% filter(appCat.builtin >= 0 | is.na(appCat.builtin))
+data_cleaner <- data %>% filter(
+  (appCat.builtin >= 0 | is.na(appCat.builtin)) & 
+  (appCat.entertainment >= 0 | is.na(appCat.entertainment))
+  )
+
 data <- data_cleaner
 ```
 
+
+## Checking for Duplicates
+```{r}
+# Identifying duplicate rows
+duplicates <- duplicated(data)
+
+# View duplicate rows
+data[duplicates, ]
+```
+
+There are no duplicate rows in the dataset.
+
+```{r}
+write.csv(data, "data_0.csv")
+```
+
+
+# Investigating Variables
 
 ## Mood
 ```{r}
@@ -231,20 +276,6 @@ data <- data %>%
 data <- data %>%
   mutate(hour = format(date_time, "%H"))
 data$hour <- as.numeric(data$hour)
-
-# Creating Variable: the day of the week (of Observation)
-data <- data %>%
-  mutate(weekday = weekdays(date_time),
-         weekday = factor(
-           weekday, 
-           levels = c("Monday", "Tuesday", 
-                      "Wednesday", "Thursday", 
-                      "Friday", "Saturday", 
-                      "Sunday")))
-
-# Creating Variable: the week of the year (of Observation)
-data <- data %>%
-  mutate(week_of_year = lubridate::week(date_time))
 ```
 
 
@@ -309,87 +340,7 @@ hour_activity %>%
 ```
 
 
-### Visual: Weekdays
-```{r}
-# Summarizing Per Weekday
-weekday_summary <- data %>%
-  group_by(weekday) %>%
-  summarise(
-    mean_mood = mean(mood, na.rm = TRUE),
-    sd_mood = sd(mood, na.rm = TRUE),
-    n = sum(!is.na(mood)),
-    sem = sd_mood / sqrt(n),
-    ci_lower = mean_mood - qnorm(0.975) * sem,
-    ci_upper = mean_mood + qnorm(0.975) * sem
-  )
-
-# Bar Plot
-weekday_summary %>%
-  ggplot(aes(
-    x = weekday, 
-    y = mean_mood)) + 
-  geom_col(color = "black", 
-           fill = "skyblue1") +
-  geom_errorbar(aes(ymin = ci_lower, 
-                    ymax = ci_upper), 
-                width = .2) +  
-  geom_text(aes(
-    label = paste("n =", n), 
-    y = mean_mood + 0.02), 
-    vjust = -5.5,
-    family = "Times New Roman") + 
-  theme_classic(base_family = "Times") +
-  labs(
-    title = "Mean Mood per Weekday",
-    x = "Weekday",
-    y = "Mean Mood"
-  ) + 
-  coord_cartesian(ylim = c(6.8,7.5))
-```
-
-
-### Visual: Week of Year
-```{r}
-# Summarizing Per Weekday
-week_summary <- data %>%
-  group_by(week_of_year) %>%
-  summarise(
-    mean_mood = mean(mood, na.rm = TRUE),
-    sd_mood = sd(mood, na.rm = TRUE),
-    n = sum(!is.na(mood)),
-    sem = sd_mood / sqrt(n),
-    ci_lower = mean_mood - qnorm(0.975) * sem,
-    ci_upper = mean_mood + qnorm(0.975) * sem
-  )
-
-# Bar Plot
-week_summary %>%
-  ggplot(aes(
-    x = week_of_year, 
-    y = mean_mood)) + 
-  geom_col(color = "black", 
-           fill = "skyblue") +
-  geom_errorbar(aes(ymin = ci_lower, 
-                    ymax = ci_upper), 
-                width = .2) +  
-  geom_text(aes(
-    label = n, 
-    y = mean_mood + 0.02), 
-    vjust = -10,
-    family = "Times New Roman") + 
-  theme_classic(base_family = "Times") +
-  labs(
-    title = "Mean Mood per Week of the Year",
-    x = "Week of the Year",
-    y = "Mean Mood"
-  ) + 
-  coord_cartesian(ylim = c(6,7.6))
-  
-```
-
-
-
-### *** Filtering Time ***
+### FILTER Time
 
 ```{r}
 table(data$date)
@@ -403,7 +354,8 @@ table(data$date)
 # A bit more conservative: 
 data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
 # > 4000
-data_filter_time_2 <- data %>% filter(date > "2014-03-20" & date < "2014-05-05")
+data_filter_time_2 <- data %>% filter(
+  date > "2014-03-20" & date < "2014-05-05")
 ```
 
 
@@ -424,6 +376,312 @@ data_filter_time_2 %>% ggplot(aes(x = date)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+```{r}
+data <- data_filter_time_2
+```
+
+```{r}
+data_to_write <- data
+data_to_write <- data_to_write %>% mutate(
+  date_time = format(date_time, format="%Y-%m-%d %H:%M:%S"))
+data_to_write$date_time <- as.character(data_to_write$date_time)
+
+write.csv(data_to_write, "data_1.csv")
+```
+
+
+## Activity
+```{r}
+activity_count_per_hour <- data %>%
+  filter(!is.na(activity)) %>%
+  group_by(hour) %>%
+  summarize(count = n())
+
+# Bar Plot
+activity_count_per_hour %>%
+  ggplot(aes(
+    x = hour, 
+    y = count)) + 
+  geom_col(color = "black", 
+           fill = "orange") + coord_cartesian(ylim=c(700,900))
+```
+
+
+```{r}
+activity_count_per_hour <- data %>%
+  filter(activity == 0) %>%
+  group_by(hour) %>%
+  summarize(count = n())
+
+# Bar Plot
+activity_count_per_hour %>%
+  ggplot(aes(
+    x = hour, 
+    y = count)) + 
+  geom_col(color = "black", 
+           fill = "orange")
+```
+
+
+# Aggregating
+
+First assigning new rows with beeps to the dataset.
+```{r}
+# Generate additional times and beeps
+additional_times <- c(
+  "09:00:01", 
+  "12:00:01", 
+  "15:00:01", 
+  "18:00:01", 
+  "21:00:01")
+beep_identifiers <- c(1, 2, 3, 4, 5) 
+dates <- unique(as.Date(data$date_time))
+participants <- unique(data$ID)
+
+# Map times to beep identifiers
+time_to_beep <- setNames(beep_identifiers, additional_times)
+# Create a data frame of all combinations of dates, times, and participants
+expanded_data <- expand.grid(
+  date = dates, 
+  time = additional_times, 
+  ID = participants)
+expanded_data$date_time <- as.POSIXct(paste(
+  expanded_data$date, 
+  expanded_data$time))
+expanded_data$beep_number <- time_to_beep[as.character(expanded_data$time)]
+
+# Initialize columns for expanded_data that are in data but not in expanded_data
+additional_columns <- setdiff(names(data), names(expanded_data))
+for (col in additional_columns) {
+  expanded_data[[col]] <- NA
+}
+
+# Combine original and expanded data
+data$beep_number <- NA # since this variable does not exist in the original dataset
+combined_data <- rbind(data, expanded_data)
+
+# Remove duplicate rows and sort by date_time
+combined_data <- combined_data %>%
+  arrange(ID, date_time) %>%
+  distinct()
+
+# Make sure it is sorted by ID and date_time
+combined_data <- combined_data %>%
+  arrange(ID, date_time)
+
+# Fill beep_number NA values using zoo::na.locf()
+combined_data$beepo <- zoo::na.locf(
+  combined_data$beep_number, 
+  na.rm = FALSE, 
+  fromLast = TRUE)
+
+combined_data$beepo2 <- zoo::na.locf(
+  combined_data$beep_number, 
+  na.rm = FALSE)
+```
+
+Then aggregating the dataset based on beeps.
+```{r}
+# Example aggregation: Calculate the mean mood for each beep interval for each participant
+# You can change this to match the specific columns and summary statistics you need
+aggregated_data <- combined_data %>%
+  group_by(ID, beep_number) %>%
+  summarize(mean_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
+
+aggregated_data <- combined_data %>%
+  group_by(ID, date, beepo) %>%
+  summarise(
+    mood = mean(mood, na.rm = TRUE),
+    arousal = mean(circumplex.arousal, na.rm = TRUE),
+    valence = mean(circumplex.valence, na.rm = TRUE),
+    activity = mean(activity, na.rm = TRUE),
+    screen = sum(screen, na.rm = TRUE),
+    call = sum(call, na.rm = TRUE),
+    sms = sum(sms, na.rm = TRUE),
+    appCat.builtin = sum(appCat.builtin, na.rm = TRUE),
+    appCat.communication = sum(appCat.communication, na.rm = TRUE),
+    appCat.entertainment = sum(appCat.entertainment, na.rm = TRUE),
+    appCat.finance = sum(appCat.finance, na.rm = TRUE),
+    appCat.game = sum(appCat.game, na.rm = TRUE),
+    appCat.office = sum(appCat.office, na.rm = TRUE),
+    appCat.other = sum(appCat.other, na.rm = TRUE),
+    appCat.social = sum(appCat.social, na.rm = TRUE),
+    appCat.travel = sum(appCat.travel, na.rm = TRUE),
+    appCat.unknown = sum(appCat.unknown, na.rm = TRUE),
+    appCat.utilities = sum(appCat.utilities, na.rm = TRUE), 
+    appCat.weather = sum(appCat.weather, na.rm = TRUE), 
+    .groups = "drop")
+```
+
+
+```{r}
+write.csv(aggregated_data, "data_2_aggregated.csv")
+```
+
+
+# Imputation
+## Kalman
+```{r}
+imputed <- imputeTS::na_kalman(aggregated_data)
+```
+
+```{r}
+write.csv(imputed, "data_3_imputed_kalman.csv")
+```
+
+
+# Normalization
+
+```{r}
+data_normal <- imputed %>%
+  mutate_at(vars(arousal:appCat.weather), scale)
+```
+
+
+
+
+
+
+# Sleep
+
+
+```{r}
+# data <- combined_data
+```
+
+
+```{r}
+# 21 - 12
+data <- data %>% filter(beepo2 == 5 | beepo2 == 1)
+```
+
+
+## Observation Day
+```{r}
+# Adding a days_since_start column
+data <- data %>% mutate(
+  days_since_start = as.numeric(
+    difftime(date, min(date), units = "days")))
+
+# Check
+unique(data$days_since_start)
+```
+
+```{r}
+# Sort data by date_time
+data <- data %>% arrange(ID, date_time)
+```
+
+```{r}
+# Potential Hours 
+data <- data %>% mutate(
+  after_midnight_activity = (hour >= 0 & hour <= 6),
+  # Wake up Hour (first observation after the difference)
+  potential_sleep_hour = (hour >= 20 | hour <= 11),
+  # Wake up Hour (first observation after the difference)
+  potential_wakeup_hour = (hour >= 5 & hour <= 12))
+```
+
+## Potential Sleep Gap
+```{r}
+# Column for the time difference between 
+# the current observation and the last observation
+data <- data %>% group_by(ID) %>% mutate(
+  # For every observation, getting the difference between the previous
+  time_diff = round(
+    difftime(date_time, lag(date_time),
+             units = "hours"), 3),
+  # Gap based on both these variables
+  possible_sleep_gap = (time_diff >= 5 & time_diff <= 15) & 
+    (potential_wakeup_hour == TRUE)) %>% 
+  ungroup()
+```
+
+## Inactivity
+```{r}
+# Inactivity
+data <- data %>% mutate(
+  is_inactive = dplyr::case_when(
+    is.na(activity) ~ FALSE,
+    activity == 0 ~ TRUE,
+    TRUE ~ FALSE))
+
+# Applying a run-length encoding to count consecutive inactive periods
+data <- data %>% group_by(ID) %>% mutate(
+    consecutive_inactive = with(rle(is_inactive), {
+      # Only count lengths where is_inactive is TRUE:
+      lengths_corrected <- lengths * values  
+      # Repeat these lengths according to run lengths:
+      rep(lengths_corrected, lengths)   
+    })) %>% 
+  ungroup()
+```
+
+## Fragmented Sleep
+```{r}
+########  1  #############
+# last inactive hour
+data <- data %>%
+  mutate(
+    # Check if current observation is inactive
+    last_inactive_hour = if_else(is_inactive, hour, 
+                                            NA_integer_)
+  ) %>%
+  group_by(ID) %>%
+  # Fill NA values with the last known inactive hour, carrying it forward
+  fill(last_inactive_hour, .direction = "down") %>%
+  ungroup()
+
+########  2  ##########
+# Assuming data is already loaded and date_time is in POSIXct format
+data <- data %>%
+  mutate(
+    # Record the datetime of the last inactive observation
+    last_inactive_time = if_else(is_inactive, date_time, as.POSIXct(NA))
+  ) %>%
+  group_by(ID) %>%
+  # Fill NA values with the last known inactive datetime, carrying it forward
+  fill(last_inactive_time, .direction = "down") %>%
+  ungroup() %>%
+  mutate(
+    # Calculate the time difference in hours between now and the last inactive time
+    time_since_last_inactive = if_else(is.na(last_inactive_time),
+                                       NA_real_,
+                                       as.numeric(difftime(date_time, last_inactive_time, units = "hours")))
+  )
+```
+
+
+## WORKING ON IT NOW
+```{r}
+# Determine if sleep occurred after midnight
+data <- data %>% mutate(
+    slept_after_midnight = hour(date_time) >= 0 & hour(date_time) <= 6 & sleep == 1)
+
+```
+
+
+
+
+## Sleep
+```{r}
+data <- data %>% group_by(ID)%>% mutate(
+  sleep = case_when(
+    consecutive_inactive >= 4 & 
+      potential_sleep_hour ~ consecutive_inactive, 
+    
+    possible_sleep_gap & 
+      potential_wakeup_hour ~ round(as.numeric(time_diff)),
+    
+    TRUE ~ 0
+  )
+) %>% ungroup()
+```
+
+
+
+
+
 
 
 
@@ -431,17 +689,14 @@ data_filter_time_2 %>% ggplot(aes(x = date)) +
 
 # Aggregating
 
-We have a couple of options
-
-The most straightforward one (and kind of bad):
 ```{r}
 # aggregating the data by date, for all participants
-new_data <- data_filter_time %>%
+aggregated_data <- data %>%
   group_by(date, ID) %>%
   summarise(
-    variable_mean = mean(mood, na.rm = TRUE),
-    circumplex.arousal = mean(circumplex.arousal, na.rm = TRUE),
-    circumplex.valence = mean(circumplex.valence, na.rm = TRUE),
+    mood = mean(mood, na.rm = TRUE),
+    arousal = mean(circumplex.arousal, na.rm = TRUE),
+    valence = mean(circumplex.valence, na.rm = TRUE),
     activity = mean(activity, na.rm = TRUE),
     # screen???
     call = sum(call, na.rm = TRUE),
@@ -460,51 +715,163 @@ new_data <- data_filter_time %>%
     appCat.weather = sum(appCat.weather, na.rm = TRUE), 
     .groups = "drop")
 
+# Standardizing
+aggregated_data_2 <- aggregated_data %>%
+  mutate_at(vars(arousal:appCat.weather), scale)
+colnames(aggregated_data_2)
+
+# Model
+model <- lme4::lmer(
+  mood ~ arousal + 
+    valence + 
+    activity + 
+    call + 
+    sms + 
+    appCat.builtin + 
+    appCat.communication + 
+    appCat.entertainment + 
+    appCat.finance + 
+    appCat.game + 
+    appCat.office + 
+    appCat.other + 
+    appCat.social + 
+    appCat.travel + 
+    appCat.unknown + 
+    appCat.utilities + 
+    appCat.weather + 
+    (1 + time|ID), 
+  data = aggregated_data)
+summary(model)
 ```
 
 
-## New Variable: Time of Observation
 ```{r}
-a <- data %>% 
-  mutate(
-    adjusted_date_time = if_else(
-      hour(date_time) < 4, date_time - days(1), date_time),
-    adjusted_date = as.Date(adjusted_date_time)
-  )
-
-# Group by participant and adjusted_date to find the last observation for each day
-a <- a %>%
-  group_by(id, adjusted_date) %>%
-  mutate(last_observation_time = max(date_time)) %>%
-  ungroup()
+write.csv(aggregated_data, "data_aggregated.csv")
+```
 
 
-x_2 <- x %>% filter(date == "2014-02-26")
+
+
+# Network Shit
+
+```{r}
+load("ml_mod.RData")
+```
+
+```{r}
+variables_network <- c("mood", "arousal", "valence", "activity", "call", "sms", "appCat.builtin", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", "appCat.office", "appCat.other", "appCat.social", "appCat.travel", "appCat.unknown", "appCat.utilities", "appCat.weather")
+
+data_normal <- read.csv("data_for_analysis.csv")
+
+variables_network <- c("mood", "arousal", "valence", "activity", "appCat.social")
+# "call", "sms", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", 
+
+# multilevel vector autoregressive (mlVAR) model, 
+# also regarded as a special case of the dynamic structural equation model (DSEM)
+library(mlVAR)
+ml_mod <- mlVAR::mlVAR(
+  data_normal, 
+  vars = variables_network, 
+  idvar = "ID", 
+  dayvar = "date", 
+  estimator = "lmer", 
+  beepvar = "beepo", 
+  temporal = "correlated", 
+  contemporaneous = "correlated")
 ```
 
 
 ```{r}
+temp <- plot(ml_mod, 
+             "temporal", 
+             title="Temporal Network",
+             layout = "circle")
 
-dataa <- data %>% filter(is.na(activity))
+plot(ml_mod, "contemporaneous", title="Contemporaneous Network", rule = "and")
 
-dataa <- dataa %>%
-  arrange(ID, date_time) %>%
-  group_by(ID) %>%
-  mutate(
-    time_diff = lead(date_time) - date_time
-  ) %>%
-  ungroup()
+plot(ml_mod, "between", title="Between-Subject Network", rule = "and")
 
-
-dataa <- dataa %>%
-  mutate(
-    is_sleep_start = if_else(
-      time_diff >= hours(6), TRUE, FALSE, missing = FALSE))
-
-id_1 <- dataa %>% filter(ID == 1)
-
+summary(ml_mod)
 ```
 
+
+
+```{r}
+# Assume ml_mod is already fitted
+temp <- plot(ml_mod, 
+             plotType = "temporal", 
+             title = "Temporal Network",
+             layout = layout_in_circle)  # Using igraph's layout
+
+# Enhance plot aesthetics using igraph's options
+plot.igraph(temp,
+            main = "Temporal Network",
+            vertex.label.color = "darkblue",
+            vertex.label.cex = 0.8,  # Control label size
+            vertex.size = 20,
+            edge.arrow.size = 0.5,
+            layout = layout_in_circle(temp))
+
+temp <- mlVAR::plot(ml_mod, 
+                    plotType = "temporal", 
+                    title = "Temporal Network",
+                    layout = "circle",
+                    labels = TRUE,      # Ensure labels are shown if needed
+                    edge.color = "black",
+                    edge.width = 2,
+                    vsize = 5,
+                    color = "skyblue")
+
+
+qgraph::qgraph(adj_matrix,
+       layout = "circle",
+       labels = colnames(adj_matrix),  # Ensure you have column names for labels
+       title = "Temporal Network",
+       edge.color = "black",
+       edge.width = 2,
+       vsize = 5,
+       color = "skyblue") 
+```
+
+
+
+
+
+
+
+# Bayes stuff
+
+```{r}
+# mHMMbayes::
+
+model <- mHMMbayes::mHMM(
+  y = list(mood = aggregated_data$mood), # Add other response variables as needed
+  id = aggregated_data$ID, 
+  data = aggregated_data, 
+  n_states = 3, # Example: 3 hidden states
+  covars = list("trans" = ~ arousal + valence) # Example covariates for transitions
+)
+?mHMMbayes::mHMM
+# Initial values (hypothetical)
+start_values <- list(
+  startProbs = rep(1/3, 3),
+  transProbs = matrix(c(.8, .1, .1, .1, .8, .1, .1, .1, .8), nrow = 3),
+  emissionProbs = list(mood = rep(1/3, 3))
+)
+
+# Fit the model
+fitted_model <- fit_model(model, start_values = start_values, iter = 10000, burnin = 1000)
+
+# Check results
+summary(fitted_model)
+```
+
+
+# Clustering
+```{r}
+data <- data %>% mutate(
+  mood_cat = )
+```
 
 
 
