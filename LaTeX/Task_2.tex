@@ -1,3 +1,50 @@
 \section{Task 2}
 \subsection{Task 2A}
+
+\subsubsection*{Temporal Algorithm}
+\paragraph*{Dataset}
+The dataset is only transformed slightly. For the input (X) data, we windowed over the temporal axis to get vectors
+of n=5 days. The 5 days of data are then used to predict the mood using the RNN model described later. The mood for the
+next day was one-hot encoded, meaning each of the 10 mood values is seen as its own category. We hypothesize that using the
+10 values as classes is a major problem for the training, since the mood data is (as it might be expected) centered around
+a mood value above 5, for the test data the average mood was INSERT AVG MOOD. Furthermore, using a mood scale from 1 to 10
+might be too coarse. We can not be sure that there is a clear pattern between, for example, mood=6 and mood=7. For any participant,
+it is very likely that the exact determination of the mood score is noisy, on one day it might be 6 on a different day it
+might be 7 while there is not significant difference in mood. Also, mood is highly subjective and different subjects might
+report the mood systematically different. We therefore believe that the regression approach is more usable in this
+case. If the prediction is one point too high, the final performance will not be too bad, on the other hand, if the classification
+model predicts one class wrong it is immediately seen as wrong, no matter how far the actual prediction was. This is caused by
+the classification, the ordinality of mood can not be taken into account, leading to treating the output like nominal (class) values.
+A different approach could be to predict more sparse classes. For example, instead of using 10 classes as output, one for each
+possible mood values, the mood could be summarized into low ($mood<=4$), medium ($4<mood<=7$) and high ($7<mood$) mood.
+Using this approach, over $70\%$ of the data would fall into the medium category, which can be seen in figure~\ref{fig:mood_bag_hist}.
+\begin{figure}
+    \centering
+    \includegraphics[scale=0.5]{../images/rnn_dataset.png}
+    \caption{Histogram for both the 10-class mood (red) and 3 class (low, mid, high) mood (blue).}
+    \label{fig:mood_bag_hist}
+\end{figure}
+This class imbalance would mean that the model could perform really well if it would just predict medium mood and we do not
+have enough data for the lower classes and higher classes, making it infeasible to group the mood into meaningful classes.
+Alternatively, one could use similar sized quantiles for the mood, but this would not really give meaningful classes,
+which makes this approach also unsuitable. We therefore try to use the approach of 10 separate mood classes.
+
+\paragraph*{Recurrent Neural Network}
+For the temporal algorithm we choose to train a long short term memory (LSTM) based recurrent neural network. This model is
+appropriate for our data since it can train on arbitrarily long sequences (windows) of the data. It usually performs better
+than other recurrent neural networks like Elman-Networks for example, since the LSTM has a more complex cell structure.
+The LSTM-cell is build around a cell state that encodes the previously seen data and is used to give the output for the current
+input. For each time step the cell state is combined with the last cell state, the last prediction and the current input.
+How exactly the individual elements are weighted is learned by the model itself by so-called gates. The structure of the 
+LSTM can be seen in figure~\ref{fig:lstm_cell}. The LSTM-based model was optimized using byesian optimization, which is a form
+of hyperparameter tuning. The values being tuned can be seen in table~\ref{tab:tuning}. The basic idea of the model
+architecture is to have a number of dense layers before the LSTM-cell, those layers serve the purpose of encoding
+the raw input into a format more suitable for the LSTM-cell. Then, after the LSTM combined the temporal steps, the following
+layers should transform the final LSTM output into the proper classes. 
+
+The final accuracy values can be seen in table~\ref{tab:results_lstm}. Notably, the network performs rather badly. This
+can both be seen from the accuracy, confusion matrix as well as from the $F_1$-score which is the harmonic mean between 
+recall and precision and gives information about type 1 and type 2 errors.
+
+
 \subsection{Task 2B}
