@@ -30,6 +30,17 @@ library(mHMMbayes)
 ```
 
 ```{r}
+fix_time <- function(data){
+  data_to_write <- data
+  data_to_write <- data_to_write %>% mutate(
+    date_time = format(date_time, format="%Y-%m-%d %H:%M:%S"))
+  data_to_write$date_time <- as.character(data_to_write$date_time)
+  return(data_to_write)
+}
+```
+
+
+```{r}
 data_raw <- read.csv("data/data.csv")
 ```
 
@@ -134,9 +145,23 @@ data[duplicates, ]
 
 There are no duplicate rows in the dataset.
 
+## EXPORT DATA_0
 ```{r}
-write.csv(data, "data/data_0.csv")
+write.csv(data, "data/data_0_cleaned_responses.csv")
 ```
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Investigating Variables
@@ -162,17 +187,7 @@ data$hour <- as.numeric(data$hour)
 
 ### Visual: Entire Time
 ```{r}
-length(unique(data$date))
 # Histogram
-hist_time <- data %>% ggplot(aes(x = date)) + 
-  geom_histogram(bins = 112, 
-                 color = "black", 
-                 fill = "purple2") +
-  theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Observations", 
-       x = "Date-Time", 
-       y = "Frequency") + scale_x_date(breaks = "1 week",date_labels = "%d-%m")
-
 hist_time <- data %>% ggplot(aes(x = date)) + 
   geom_histogram(bins = length(unique(data$date)), 
                  color = "black", 
@@ -189,6 +204,72 @@ hist_time <- data %>% ggplot(aes(x = date)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 print(hist_time)
 ```
+
+
+### FILTER Time
+
+```{r}
+table(data$date)
+# 2014-03-13 or 2014-03-20
+# 2014-05-29 or 2014-05-05
+```
+
+```{r}
+for (participant_ID in unique(data$ID)){
+  cat(paste("participant ID: ",participant_ID))
+  cat("\n")
+  dataset <- data %>% filter(ID == participant_ID)
+  print(min(dataset$date))
+  print(max(dataset$date))
+  cat("\n")
+}
+```
+
+**Filtering**:
+```{r}
+# > 4000
+data_filter_time_2 <- data %>% filter(
+  date > "2014-03-20" & date < "2014-05-05")
+
+# A bit more conservative approach: 
+# data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
+```
+
+
+```{r}
+hist_filtered_time <- data_filter_time_2 %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data_filter_time_2$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations (21-03-2014 — 04-05-2014)", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(
+    breaks = seq(as.Date("2014-03-21"), 
+                 as.Date("2014-05-04"), 
+                 by = "1 week"), 
+    date_labels = "%d-%m") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_filtered_time)
+```
+
+```{r}
+(hist_time | hist_filtered_time) + 
+  patchwork::plot_layout(ncol = 2)
+```
+
+```{r}
+data <- data_filter_time_2
+```
+
+### EXPORT DATA_1
+
+```{r}
+data_to_write <- fix_time(data)
+write.csv(data_to_write, "data/data_1_cleaned_and_time_filtered.csv")
+```
+
 
 ### Visual: Hour x Observ.
 ```{r}
@@ -237,119 +318,6 @@ hour_activity %>%
 ```
 
 
-### Hour x Variables
-```{r}
-hist_mood_hour <- data %>% filter(!is.na(mood)) %>% 
-  ggplot(aes(x = hour)) + 
-  geom_histogram(bins = 24, 
-                 color = "black", 
-                 fill = "firebrick") + 
-  theme_classic(base_family = "Times") + 
-  labs(title = "Frequency of Mood Observations Per Hour", 
-       x = "Hour",
-       y = "Frequency") + 
-  scale_x_continuous(breaks = 0:23)
-
-hist_arousal_hour <- data %>% filter(!is.na(circumplex.arousal)) %>% 
-  ggplot(aes(x = hour)) + 
-  geom_histogram(bins = 24, 
-                 color = "black", 
-                 fill = "deepskyblue2") + 
-  theme_classic(base_family = "Times") + 
-  labs(title = "Frequency of Arousal Observations Per Hour", 
-       x = "Hour",
-       y = "Frequency") + 
-  scale_x_continuous(breaks = 0:23)
-
-hist_valence_hour <- data %>% filter(!is.na(circumplex.valence)) %>% 
-  ggplot(aes(x = hour)) + 
-  geom_histogram(bins = 24, 
-                 color = "black", 
-                 fill = "purple2") + 
-  theme_classic(base_family = "Times") + 
-  labs(title = "Frequency of Valence Observations Per Hour", 
-       x = "Hour",
-       y = "Frequency") + 
-  scale_x_continuous(breaks = 0:23)
-
-(hist_mood | hist_arousal | hist_valence | 
- hist_mood_hour | hist_arousal_hour | hist_valence_hour) + 
-  patchwork::plot_layout(ncol = 3, nrow = 2)
-
-```
-
-
-
-### FILTER Time
-
-```{r}
-table(data$date)
-# 2014-03-13 or 2014-03-20
-# 2014-05-29 or 2014-05-05
-```
-
-```{r}
-for (participant_ID in unique(data$ID)){
-  cat(paste("participant ID: ",participant_ID))
-  cat("\n")
-  dataset <- data %>% filter(ID == participant_ID)
-  print(min(dataset$date))
-  print(max(dataset$date))
-  cat("\n")
-}
-```
-
-
-
-```{r}
-# > 4000
-data_filter_time_2 <- data %>% filter(
-  date > "2014-03-20" & date < "2014-05-05")
-
-# A bit more conservative approach: 
-# data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
-```
-
-
-```{r}
-hist_filtered_time <- data_filter_time_2 %>% ggplot(aes(x = date)) + 
-  geom_histogram(bins = length(unique(data_filter_time_2$date)), 
-                 color = "black", 
-                 fill = "purple2") +
-  theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Observations (21-03-2014 — 04-05-2014)", 
-       x = "Date-Time", 
-       y = "Frequency") + 
-  scale_x_date(
-    breaks = seq(as.Date("2014-03-21"), 
-                 as.Date("2014-05-04"), 
-                 by = "1 week"), 
-    date_labels = "%d-%m") + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-print(hist_filtered_time)
-```
-
-```{r}
-(hist_time | hist_filtered_time) + 
-  patchwork::plot_layout(ncol = 2)
-```
-
-
-
-```{r}
-data <- data_filter_time_2
-```
-
-```{r}
-data_to_write <- data
-data_to_write <- data_to_write %>% mutate(
-  date_time = format(date_time, format="%Y-%m-%d %H:%M:%S"))
-data_to_write$date_time <- as.character(data_to_write$date_time)
-
-write.csv(data_to_write, "data_1.csv")
-```
-
-
 ## Mood
 ```{r}
 # Quick Summary
@@ -370,11 +338,12 @@ print(hist_mood)
 ```{r}
 mood_summary <- data %>%
   group_by(ID) %>%
-  summarise(mean_mood = mean(mood, na.rm = TRUE),
-            median_mood = median(mood, na.rm = TRUE),
-            sd_mood = sd(mood, na.rm = TRUE),
-            max_mood = max(mood, na.rm = TRUE),
-            min_mood = min(mood, na.rm = TRUE))
+  summarise(
+    mean_mood = mean(mood, na.rm = TRUE),
+    median_mood = median(mood, na.rm = TRUE),
+    sd_mood = sd(mood, na.rm = TRUE),
+    max_mood = max(mood, na.rm = TRUE),
+    min_mood = min(mood, na.rm = TRUE))
 mood_summary
 ```
 
@@ -416,12 +385,14 @@ find_outlier <- function(x) {
   return(x < quantile(x, .25) - 1.5*IQR(x) | x > quantile(x, .75) + 1.5*IQR(x))
 }
 
-mood_summary <- mood_summary %>%
-  mutate(outlier = ifelse(find_outlier(sd_mood), ID, NA))
+mood_summary <- mood_summary %>% mutate(
+  outlier = ifelse(find_outlier(sd_mood), ID, NA))
+mood_summary$outlier[6] <- 7
+mood_summary$outlier[27] <- 33
 
 mood_summary %>% ggplot(aes(x = "", y = sd_mood)) +
   geom_boxplot(color = "firebrick") +
-  theme_classic() +
+  theme_classic(base_family = "Times") +
   labs(title = "Boxplot of Standard Deviation of Mood",
        y = "Standard Deviation of Mood",
        x = "") + 
@@ -468,6 +439,48 @@ print(hist_valence)
 ```
 
 
+## Psychological x Hour
+```{r}
+hist_mood_hour <- data %>% filter(!is.na(mood)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "firebrick") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Mood Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+hist_arousal_hour <- data %>% filter(!is.na(circumplex.arousal)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "deepskyblue2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Arousal Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+hist_valence_hour <- data %>% filter(!is.na(circumplex.valence)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "purple2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Valence Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+(hist_mood | hist_arousal | hist_valence | 
+ hist_mood_hour | hist_arousal_hour | hist_valence_hour) + 
+  patchwork::plot_layout(ncol = 3, nrow = 2)
+```
+
+
+
 ## Activity
 ```{r}
 activity_count_per_hour <- data %>%
@@ -498,6 +511,92 @@ activity_count_per_hour %>%
     y = count)) + 
   geom_col(color = "black", 
            fill = "orange")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Train-test Split
+
+## Time
+Based on time
+```{r}
+test_days <- length(unique(data$date)) * (1/5)
+
+data_TRAIN_time <- data %>% filter(date <= max(data$date) - test_days)
+length(unique(data_train$date))
+
+
+data_TEST_time <- data %>% filter(date > max(data$date) - test_days)
+length(unique(data_test$date))
+```
+
+## EXPORT DATA_2 - TIME
+```{r}
+data_to_write_TRAIN <- fix_time(data_TRAIN_time)
+write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_TIME_not_aggregated.csv")
+
+data_to_write_TEST <- fix_time(data_TEST_time)
+write.csv(data_to_write_TEST, "data/data_2_TEST_TIME_not_aggregated.csv")
+```
+
+
+## Participant
+Based on participant
+
+```{r}
+participants <- unique(as.numeric(data$ID))
+set.seed(11042024) # Setting random seed with the date
+test_participants <- sample(participants, length(participants)* 1/4)
+test_participants
+
+data_TEST_id <- data_1 %>% filter(as.numeric(ID) %in% test_participants)
+unique(as.numeric(test_set$ID))
+
+`%not_in%` <- purrr::negate(`%in%`)
+data_TRAIN_id <- data_1 %>% dplyr::filter(as.numeric(ID) %not_in% test_participants)
+unique(as.numeric(train_set$ID))
+```
+
+## EXPORT DATA_2 - ID
+```{r}
+data_to_write_TRAIN <- fix_time(data_TRAIN_id)
+write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_ID_not_aggregated.csv")
+
+data_to_write_TEST <- fix_time(data_TEST_id)
+write.csv(data_to_write_TEST, "data/data_2_TEST_ID_not_aggregated.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+data <- data_TRAIN_time
 ```
 
 
@@ -593,8 +692,19 @@ aggregated_data <- combined_data %>%
 
 
 ```{r}
-write.csv(aggregated_data, "data_2_aggregated.csv")
+write.csv(aggregated_data, "data/data_3_aggregated_BEEPS.csv")
 ```
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Imputation
@@ -615,6 +725,9 @@ data_normal <- imputed %>%
   mutate_at(vars(arousal:appCat.weather), scale)
 ```
 
+```{r}
+imputed
+```
 
 
 
