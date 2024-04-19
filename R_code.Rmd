@@ -59,17 +59,6 @@ colnames(data_0)[1] <- "obs_number"
 data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
 ```
 
-```{r}
-participants <- unique(data_raw$id)
-set.seed(17042024)
-test_participants <- sample(participants, length(participants)* 1/4)
-
-test_set <- data_1 %>% filter(ID %in% test_participants)
-
-`%not_in%` <- purrr::negate(`%in%`)
-train_set <- data_1 %>% dplyr::filter(ID %not_in% test_participants)
-unique(as.numeric(train_set$ID))
-```
 
 fixing time:
 ```{r}
@@ -85,6 +74,7 @@ data_2 <- subset(data_1, select = -time)
 
 # Quick Summary
 summary(data_2$date_time)
+max(data_2$date_time) - min(data_2$date_time)
 ```
 
 Long to Wide Transformation:
@@ -145,11 +135,220 @@ data[duplicates, ]
 There are no duplicate rows in the dataset.
 
 ```{r}
-write.csv(data, "data_0.csv")
+write.csv(data, "data/data_0.csv")
 ```
 
 
 # Investigating Variables
+
+## Time
+
+### New Variables
+```{r}
+# Creating Variable: the Date (of Observation)
+data <- data %>%
+  mutate(date = as.Date(date_time))
+
+# Creating Variable: the Time (of Observation)
+data <- data %>%
+  mutate(time = format(date_time, "%H:%M:%S"))
+
+# Creating Variable: the Hour (of Observation)
+data <- data %>%
+  mutate(hour = format(date_time, "%H"))
+data$hour <- as.numeric(data$hour)
+```
+
+
+### Visual: Entire Time
+```{r}
+length(unique(data$date))
+# Histogram
+hist_time <- data %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = 112, 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations", 
+       x = "Date-Time", 
+       y = "Frequency") + scale_x_date(breaks = "1 week",date_labels = "%d-%m")
+
+hist_time <- data %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations (17-02-2014 — 09-06-2014)", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(
+    breaks = seq(as.Date(min(data$date)), 
+                 as.Date(max(data$date)), 
+                 by = "1 week"), 
+    date_labels = "%d-%m") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_time)
+```
+
+### Visual: Hour x Observ.
+```{r}
+data %>% ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "purple2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+```
+
+### Visual: Hour x Activity
+
+```{r}
+# Summarizing Per Weekday
+hour_activity <- data %>%
+  group_by(hour) %>%
+  summarise(
+    mean_act = mean(activity, na.rm = TRUE),
+    sd_act = sd(activity, na.rm = TRUE),
+    n = sum(!is.na(activity)),
+    sem = sd_act / sqrt(n),
+    ci_lower = mean_act - qnorm(0.975) * sem,
+    ci_upper = mean_act + qnorm(0.975) * sem
+  )
+
+# Bar Plot
+hour_activity %>%
+  ggplot(aes(
+    x = hour, 
+    y = mean_act)) + 
+  geom_col(color = "black", 
+           fill = "skyblue1") +
+  geom_errorbar(aes(ymin = ci_lower, 
+                    ymax = ci_upper), 
+                width = .2) + 
+  theme_classic(base_family = "Times") +
+  labs(
+    title = "Mean Activity per Hour",
+    x = "Hour",
+    y = "Mean Activity"
+  )
+```
+
+
+### Hour x Variables
+```{r}
+hist_mood_hour <- data %>% filter(!is.na(mood)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "firebrick") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Mood Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+hist_arousal_hour <- data %>% filter(!is.na(circumplex.arousal)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "deepskyblue2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Arousal Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+hist_valence_hour <- data %>% filter(!is.na(circumplex.valence)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "purple2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Valence Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+(hist_mood | hist_arousal | hist_valence | 
+ hist_mood_hour | hist_arousal_hour | hist_valence_hour) + 
+  patchwork::plot_layout(ncol = 3, nrow = 2)
+
+```
+
+
+
+### FILTER Time
+
+```{r}
+table(data$date)
+# 2014-03-13 or 2014-03-20
+# 2014-05-29 or 2014-05-05
+```
+
+```{r}
+for (participant_ID in unique(data$ID)){
+  cat(paste("participant ID: ",participant_ID))
+  cat("\n")
+  dataset <- data %>% filter(ID == participant_ID)
+  print(min(dataset$date))
+  print(max(dataset$date))
+  cat("\n")
+}
+```
+
+
+
+```{r}
+# > 4000
+data_filter_time_2 <- data %>% filter(
+  date > "2014-03-20" & date < "2014-05-05")
+
+# A bit more conservative approach: 
+# data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
+```
+
+
+```{r}
+hist_filtered_time <- data_filter_time_2 %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data_filter_time_2$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations (21-03-2014 — 04-05-2014)", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(
+    breaks = seq(as.Date("2014-03-21"), 
+                 as.Date("2014-05-04"), 
+                 by = "1 week"), 
+    date_labels = "%d-%m") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_filtered_time)
+```
+
+```{r}
+(hist_time | hist_filtered_time) + 
+  patchwork::plot_layout(ncol = 2)
+```
+
+
+
+```{r}
+data <- data_filter_time_2
+```
+
+```{r}
+data_to_write <- data
+data_to_write <- data_to_write %>% mutate(
+  date_time = format(date_time, format="%Y-%m-%d %H:%M:%S"))
+data_to_write$date_time <- as.character(data_to_write$date_time)
+
+write.csv(data_to_write, "data_1.csv")
+```
+
 
 ## Mood
 ```{r}
@@ -158,12 +357,14 @@ summary(wide_data$mood)
 table(wide_data$mood)
 
 # Histogram
-data %>% ggplot(aes(x = mood)) + 
+hist_mood <- data %>% filter(!is.na(mood)) %>% 
+  ggplot(aes(x = mood)) + 
   geom_histogram(bins = 10, color = "black", fill = "firebrick") +
   theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Mood Observations", 
+  labs(title = "Distribution of Mood", 
        x = "Mood", 
        y = "Frequency")
+print(hist_mood)
 ```
 
 ```{r}
@@ -241,155 +442,29 @@ table(data$circumplex.arousal)
 summary(data$circumplex.valence)
 table(data$circumplex.valence)
 
-# Histograms & Combining Them
-hist_arousal <- data %>% ggplot(aes(x = circumplex.arousal)) + 
+# Histograms
+hist_arousal <- data %>% filter(!is.na(circumplex.arousal)) %>% 
+  ggplot(aes(x = circumplex.arousal)) + 
   geom_histogram(bins = 5, color = "black", fill = "deepskyblue2") +
   theme_classic(base_family = "Times") + 
   labs(title = "Distribution of Arousal", 
        x = "Arousal", 
        y = "Frequency")
+print(hist_arousal)
 
-hist_valence <- data %>% ggplot(aes(x = circumplex.valence)) + 
+hist_valence <- data %>% filter(!is.na(circumplex.valence)) %>% 
+  ggplot(aes(x = circumplex.valence)) + 
   geom_histogram(bins = 5, color = "black", fill = "purple2") +
   theme_classic(base_family = "Times") + 
   labs(title = "Distribution of Valence", 
        x = "Valence", 
        y = "Frequency")
-
-# Doing layout for ggpplot2:
-(hist_arousal | hist_valence) + 
-  patchwork::plot_layout(ncol = 2)
-```
-
-
-
-## Time
-
-### New Variables
-```{r}
-# Creating Variable: the Date (of Observation)
-data <- data %>%
-  mutate(date = as.Date(date_time))
-
-# Creating Variable: the Time (of Observation)
-data <- data %>%
-  mutate(time = format(date_time, "%H:%M:%S"))
-
-# Creating Variable: the Hour (of Observation)
-data <- data %>%
-  mutate(hour = format(date_time, "%H"))
-data$hour <- as.numeric(data$hour)
-```
-
-
-### Visual: Entire Time
-```{r}
-length(unique(data$date))
-# Histogram
-data %>% ggplot(aes(x = date)) + 
-  geom_histogram(bins = 112, 
-                 color = "black", 
-                 fill = "purple2") +
-  theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Observations", 
-       x = "Date-Time", 
-       y = "Frequency") + scale_x_date(breaks = "1 week",date_labels = "%d-%m")
-```
-
-### Visual: Hour x Observ.
-```{r}
-data %>% ggplot(aes(x = hour)) + 
-  geom_histogram(bins = 24, 
-                 color = "black", 
-                 fill = "purple2") + 
-  theme_classic(base_family = "Times") + 
-  labs(title = "Frequency of Observations Per Hour", 
-       x = "Hour",
-       y = "Frequency") + 
-  scale_x_continuous(breaks = 0:23)
-```
-
-### Visual: Hour x Activity
-
-```{r}
-# Summarizing Per Weekday
-hour_activity <- data %>%
-  group_by(hour) %>%
-  summarise(
-    mean_act = mean(activity, na.rm = TRUE),
-    sd_act = sd(activity, na.rm = TRUE),
-    n = sum(!is.na(activity)),
-    sem = sd_act / sqrt(n),
-    ci_lower = mean_act - qnorm(0.975) * sem,
-    ci_upper = mean_act + qnorm(0.975) * sem
-  )
-
-# Bar Plot
-hour_activity %>%
-  ggplot(aes(
-    x = hour, 
-    y = mean_act)) + 
-  geom_col(color = "black", 
-           fill = "skyblue1") +
-  geom_errorbar(aes(ymin = ci_lower, 
-                    ymax = ci_upper), 
-                width = .2) + 
-  theme_classic(base_family = "Times") +
-  labs(
-    title = "Mean Activity per Hour",
-    x = "Hour",
-    y = "Mean Activity"
-  )
-```
-
-
-### FILTER Time
-
-```{r}
-table(data$date)
-# 2014-03-13 or 2014-03-20
-# 2014-05-29 or 2014-05-05
-```
-
-
-
-```{r}
-# A bit more conservative: 
-data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
-# > 4000
-data_filter_time_2 <- data %>% filter(
-  date > "2014-03-20" & date < "2014-05-05")
-```
-
-
-```{r}
-data_filter_time_2 %>% ggplot(aes(x = date)) + 
-  geom_histogram(bins = length(unique(data_filter_time_2$date)), 
-                 color = "black", 
-                 fill = "purple2") +
-  theme_classic(base_family = "Times") + 
-  labs(title = "Distribution of Observations over Time", 
-       x = "Date-Time", 
-       y = "Frequency") + 
-  scale_x_date(
-    breaks = seq(as.Date("2014-03-21"), 
-                 as.Date("2014-05-04"), 
-                 by = "1 day"), 
-    date_labels = "%d-%m") + 
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_valence)
 ```
 
 ```{r}
-data <- data_filter_time_2
-```
-
-```{r}
-data_to_write <- data
-data_to_write <- data_to_write %>% mutate(
-  date_time = format(date_time, format="%Y-%m-%d %H:%M:%S"))
-data_to_write$date_time <- as.character(data_to_write$date_time)
-
-write.csv(data_to_write, "data_1.csv")
+(hist_mood | hist_arousal | hist_valence) + 
+  patchwork::plot_layout(ncol = 3)
 ```
 
 
