@@ -14,7 +14,6 @@ library(ggplot2)
 library(patchwork)
 library(scales)
 library(lubridate)
-# Analysis
 library(lme4)
 library(Matrix)
 # Time Series
@@ -37,6 +36,16 @@ fix_time <- function(data){
   data_to_write$date_time <- as.character(data_to_write$date_time)
   return(data_to_write)
 }
+
+# Function to calculate mean only if not all values are NA
+safe_mean <- function(x) {
+  if (all(is.na(x))) NA else mean(x, na.rm = TRUE)
+}
+
+# Function to calculate sum only if not all values are NA
+safe_sum <- function(x) {
+  if (all(is.na(x))) NA else sum(x, na.rm = TRUE)
+}
 ```
 
 
@@ -58,8 +67,9 @@ Some Quick Fixes:
 data_0 <- data_raw %>%
   mutate(ID = as.numeric(sapply(
     strsplit(id, split = '\\.'), function(x) x[2])))
-# Factorizing the ID variable
-data_0$ID <- factor(data_0$ID)
+# Factorizing the ID variable 
+# (it causes some headaches, so I will not do this until data analysis)
+### data_0$ID <- factor(data_0$ID) ###
 
 ##### "X" #####
 # Changing the name for the "X" variable
@@ -133,6 +143,7 @@ data_cleaner <- data %>% filter(
 data <- data_cleaner
 ```
 
+## --------------------
 
 ## Checking for Duplicates
 ```{r}
@@ -184,7 +195,6 @@ data <- data %>%
 data$hour <- as.numeric(data$hour)
 ```
 
-
 ### Visual: Entire Time
 ```{r}
 # Histogram
@@ -206,7 +216,7 @@ print(hist_time)
 ```
 
 
-### FILTER Time
+### FILTER Time: Trimming
 
 ```{r}
 table(data$date)
@@ -225,10 +235,10 @@ for (participant_ID in unique(data$ID)){
 }
 ```
 
-**Filtering**:
+**Filtering** (depreciated technically ahahahaha)
 ```{r}
 # > 4000
-data_filter_time_2 <- data %>% filter(
+data_filter_time <- data %>% filter(
   date > "2014-03-20" & date < "2014-05-05")
 
 # A bit more conservative approach: 
@@ -237,8 +247,8 @@ data_filter_time_2 <- data %>% filter(
 
 
 ```{r}
-hist_filtered_time <- data_filter_time_2 %>% ggplot(aes(x = date)) + 
-  geom_histogram(bins = length(unique(data_filter_time_2$date)), 
+hist_filtered_time <- data_filter_time %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data_filter_time$date)), 
                  color = "black", 
                  fill = "purple2") +
   theme_classic(base_family = "Times") + 
@@ -260,8 +270,129 @@ print(hist_filtered_time)
 ```
 
 ```{r}
-data <- data_filter_time_2
+# data <- data_filter_time
 ```
+
+
+### FILTER time: NA Removal
+I have identified these manually after aggregating and looking at every participant:
+```{r}
+clean_id_time <- function(data){
+  data_id_cleaned <- data %>% dplyr::filter(
+    (ID == 1 & 
+       date > "2014-03-20" & 
+       date < "2014-05-05") | 
+    (ID == 2 & 
+       date > "2014-03-15" & 
+       date < "2014-04-15") | 
+    (ID == 3 & 
+       date > "2014-03-20" & 
+       date < "2014-05-08") | 
+    (ID == 5 & 
+       date > "2014-03-14" & 
+       date < "2014-05-05") | 
+    (ID == 6 & 
+       date > "2014-03-24" & 
+       date < "2014-05-08") | 
+    (ID == 7 & 
+       date > "2014-03-18" & 
+       date < "2014-05-03") | 
+    (ID == 8 & 
+       date > "2014-03-12" & 
+       date < "2014-05-05") | 
+    (ID == 9 & 
+       date > "2014-03-21" & 
+       date < "2014-04-27") | 
+    (ID == 12 & 
+       date > "2014-03-26" & 
+       date < "2014-05-05") | 
+    (ID == 13 & 
+       date > "2014-03-13" & 
+       date < "2014-05-02") | 
+    (ID == 13 & 
+       date > "2014-03-13" & 
+       date < "2014-05-03") | 
+    (ID == 14 & 
+       date > "2014-03-20" & 
+       date < "2014-05-05") | 
+    (ID == 15 & 
+       date > "2014-03-13" & 
+       date < "2014-05-06") | 
+    (ID == 16 & 
+       date > "2014-03-13" & 
+       date < "2014-05-04") | 
+    (ID == 17 & 
+       date > "2014-03-20" & 
+       date < "2014-05-05") | 
+    (ID == 19 & 
+       date > "2014-03-20" & 
+       date < "2014-05-04") | 
+    (ID == 20 & 
+       date > "2014-03-21" & 
+       date < "2014-04-29") | 
+    (ID == 23 & 
+       date > "2014-03-21" & 
+       date < "2014-05-04") | 
+    (ID == 24 & 
+       date > "2014-04-14" & 
+       date < "2014-06-08") |
+    (ID == 25 & 
+       date > "2014-04-08" & 
+       date < "2014-05-08") | 
+    (ID == 26 & 
+       date > "2014-04-12" & 
+       date < "2014-05-29") | 
+    (ID == 27 & 
+       date > "2014-04-02" & 
+       date < "2014-05-14") | 
+    (ID == 28 & 
+       date > "2014-03-31" & 
+       date < "2014-05-09") | 
+    (ID == 29 & 
+       date > "2014-03-31" & 
+       date < "2014-05-14") |
+    (ID == 30 & 
+       date > "2014-03-19" & 
+       date < "2014-05-05") | 
+    (ID == 31 & 
+       date > "2014-04-01" & 
+       date < "2014-05-06") | 
+    (ID == 32 & 
+       date > "2014-04-01" & 
+       date < "2014-05-13") | 
+    (ID == 33 & 
+       date > "2014-04-15" & 
+       date < "2014-05-31")
+  )
+  return(data_id_cleaned)
+}
+data_id_cleaned <- clean_id_time(data)
+```
+
+```{r}
+hist_filtered_time <- data_id_cleaned %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data_id_cleaned$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations (21-03-2014 — 04-05-2014)", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(date_labels = "%d-%m",
+               breaks = seq(
+                 as.Date("2014-03-13"), 
+                 as.Date("2014-06-07"), 
+                 by = "1 week")) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_filtered_time)
+```
+
+
+### --------------------
+```{r}
+data <- data_id_cleaned
+```
+
 
 ### EXPORT DATA_1
 
@@ -481,6 +612,7 @@ hist_valence_hour <- data %>% filter(!is.na(circumplex.valence)) %>%
 
 
 
+
 ## Activity
 ```{r}
 activity_count_per_hour <- data %>%
@@ -531,56 +663,6 @@ activity_count_per_hour %>%
 
 
 
-# Train-test Split
-
-## Time
-Based on time
-```{r}
-test_days <- length(unique(data$date)) * (1/5)
-
-data_TRAIN_time <- data %>% filter(date <= max(data$date) - test_days)
-length(unique(data_train$date))
-
-
-data_TEST_time <- data %>% filter(date > max(data$date) - test_days)
-length(unique(data_test$date))
-```
-
-## EXPORT DATA_2 - TIME
-```{r}
-data_to_write_TRAIN <- fix_time(data_TRAIN_time)
-write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_TIME_not_aggregated.csv")
-
-data_to_write_TEST <- fix_time(data_TEST_time)
-write.csv(data_to_write_TEST, "data/data_2_TEST_TIME_not_aggregated.csv")
-```
-
-
-## Participant
-Based on participant
-
-```{r}
-participants <- unique(as.numeric(data$ID))
-set.seed(11042024) # Setting random seed with the date
-test_participants <- sample(participants, length(participants)* 1/4)
-test_participants
-
-data_TEST_id <- data_1 %>% filter(as.numeric(ID) %in% test_participants)
-unique(as.numeric(test_set$ID))
-
-`%not_in%` <- purrr::negate(`%in%`)
-data_TRAIN_id <- data_1 %>% dplyr::filter(as.numeric(ID) %not_in% test_participants)
-unique(as.numeric(train_set$ID))
-```
-
-## EXPORT DATA_2 - ID
-```{r}
-data_to_write_TRAIN <- fix_time(data_TRAIN_id)
-write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_ID_not_aggregated.csv")
-
-data_to_write_TEST <- fix_time(data_TEST_id)
-write.csv(data_to_write_TEST, "data/data_2_TEST_ID_not_aggregated.csv")
-```
 
 
 
@@ -593,25 +675,19 @@ write.csv(data_to_write_TEST, "data/data_2_TEST_ID_not_aggregated.csv")
 
 
 
-
-
-```{r}
-data <- data_TRAIN_time
-```
-
-
-# Aggregating
+# Adding Beeps
 
 First assigning new rows with beeps to the dataset.
 ```{r}
 # Generate additional times and beeps
 additional_times <- c(
+  "06:00:01", # ghost beep to mark night time
   "09:00:01", 
   "12:00:01", 
   "15:00:01", 
   "18:00:01", 
   "21:00:01")
-beep_identifiers <- c(1, 2, 3, 4, 5) 
+beep_identifiers <- c(0, 1, 2, 3, 4, 5) 
 dates <- unique(as.Date(data$date_time))
 participants <- unique(data$ID)
 
@@ -652,22 +728,171 @@ combined_data$beepo <- zoo::na.locf(
   na.rm = FALSE, 
   fromLast = TRUE)
 
-combined_data$beepo2 <- zoo::na.locf(
-  combined_data$beep_number, 
-  na.rm = FALSE)
+### THE OTHER WAY:: ###
+#combined_data$beepo2 <- zoo::na.locf(
+#  combined_data$beep_number, 
+#  na.rm = FALSE)
 ```
 
-Then aggregating the dataset based on beeps.
-```{r}
-# Example aggregation: Calculate the mean mood for each beep interval for each participant
-# You can change this to match the specific columns and summary statistics you need
-aggregated_data <- combined_data %>%
-  group_by(ID, beep_number) %>%
-  summarize(mean_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
 
-aggregated_data <- combined_data %>%
-  group_by(ID, date, beepo) %>%
+```{r}
+combined_data_clean <- clean_id_time(combined_data)
+```
+
+
+```{r}
+# Create a flag that identifies each transition from beep 5 to beep 0
+combined_data_clean <- combined_data_clean %>%
+  group_by(ID) %>% mutate(
+    new_day_flag = if_else(lag(beepo, default = first(beepo)) == 5 & beepo == 0, 1, 0),
+    # Cumulatively sum these flags to identify unique observation days for each participant
+    observation_day = cumsum(new_day_flag)) %>%
+  ungroup()
+```
+
+
+```{r}
+combined_data_clean_removed_obs_day_0 <- combined_data_clean %>% 
+  filter(observation_day != 0) %>% subset(select = -new_day_flag)
+```
+
+```{r}
+data <- combined_data_clean_removed_obs_day_0
+# x <- data
+```
+
+# --------------------
+
+
+# Sleep
+
+```{r}
+data_beepo_0 <- data %>% filter(
+  beepo == 0 | (time == "21:00:01" & is.na(obs_number)))
+```
+
+
+```{r}
+# Sort data by date_time
+data_beepo_0 <- data_beepo_0 %>% arrange(ID, date_time)
+```
+
+
+## Potential Sleep Gap
+```{r}
+# Column for the time difference between 
+# the current observation and the last observation
+data_beepo_0 <- data_beepo_0 %>% 
+  group_by(ID, observation_day) %>% mutate(
+  # For every observation, getting the difference between the previous
+  time_diff = round(
+    difftime(date_time, lag(date_time),
+             units = "hours"), 3),
+  # If it is 15, then make it 9, for looking at sleep later
+  time_diff_adj = ifelse(time_diff == 15, 0, time_diff),
+  # Gap based on both these variables
+  possible_sleep_gap = (time_diff_adj > 1 & time_diff_adj <= 9),
+  time_diff_valid = ifelse(
+    possible_sleep_gap, time_diff_adj, 0)
+  ) %>% 
+  ungroup()
+```
+
+## Inactivity
+
+if ---- 
+```{r}
+# Inactivity
+data_beepo_0 <- data_beepo_0 %>% mutate(
+  is_inactive = dplyr::case_when(
+    is.na(activity) ~ FALSE,
+    activity == 0 ~ TRUE,
+    TRUE ~ FALSE))
+
+# Applying a run-length encoding to count consecutive inactive periods
+data_beepo_0 <- data_beepo_0 %>% group_by(ID) %>% mutate(
+    consecutive_inactive = with(rle(is_inactive), {
+      # Only count lengths where is_inactive is TRUE:
+      lengths_corrected <- lengths * values  
+      # Repeat these lengths according to run lengths:
+      rep(lengths_corrected, lengths)   
+    })) %>% 
+  ungroup()
+
+# Getting rid of the consequitve duplicates so that summing up later is easier.
+data_beepo_0 <- data_beepo_0 %>%
+  mutate(
+    # Use lag to compare each value to the previous, 
+    # initializing the first comparison to TRUE
+    consecutive_inactive_fix = if_else(
+      consecutive_inactive != lead(
+        consecutive_inactive, 
+        default = consecutive_inactive[n()]+1), 
+      (consecutive_inactive - 1), 0),
+    
+    consecutive_inactive_fix = if_else(
+      consecutive_inactive_fix == -1,
+      0,
+      consecutive_inactive_fix)
+  )
+
+table(data_beepo_0$consecutive_inactive_fix)
+```
+
+```{r}
+sum(!is.na(data$mood))
+
+aggregated_night_data <- data_beepo_0 %>%
+  group_by(ID, observation_day) %>%
   summarise(
+    night_mood = safe_mean(mood),
+    night_arousal = safe_mean(circumplex.arousal),
+    night_valence = safe_mean(circumplex.valence),
+    
+    night_physical_activity = safe_mean(activity),
+    
+    night_screen = sum(screen, na.rm = T),
+    
+    night_appcat_combined = sum(
+      appCat.builtin,
+      appCat.communication,
+      appCat.entertainment,
+      appCat.finance,
+      appCat.game,
+      appCat.office,
+      appCat.other,
+      appCat.social,
+      appCat.travel,
+      appCat.unknown,
+      appCat.utilities,
+      appCat.weather, na.rm = T),
+    
+    total_time_diff = safe_sum(time_diff_valid),
+    max_time_diff = max(time_diff_valid),
+    
+    total_inactivity = safe_sum(consecutive_inactive_fix),
+    max_inactivity = max(consecutive_inactive_fix),
+    
+    SUM_inactivity_timediff = sum(
+      total_inactivity, 
+      total_time_diff, 
+      na.rm = T),
+    
+    MAX_inactivity_timediff = max(
+      max_time_diff, 
+      max_inactivity, 
+      na.rm = T),
+    .groups = "drop",)
+```
+
+
+# Aggregating Data
+
+```{r}
+aggregated_data <- combined_data_clean_removed_obs_day_0 %>%
+  group_by(ID, observation_day, beepo) %>%
+  summarise(
+    date = max(date),
     mood = mean(mood, na.rm = TRUE),
     arousal = mean(circumplex.arousal, na.rm = TRUE),
     valence = mean(circumplex.valence, na.rm = TRUE),
@@ -692,6 +917,85 @@ aggregated_data <- combined_data %>%
 
 
 ```{r}
+data_with_night <- aggregated_data %>%
+  left_join(aggregated_night_data, by = c("ID", "observation_day"))
+```
+
+NIGHT MOOD REPLACING
+```{r}
+night_mood_replacement <- data_with_night %>%
+  arrange(ID, observation_day, beepo) %>%
+  group_by(ID) %>%
+  mutate(
+    # Create lagged versions of night variables to fill backwards
+    lead_night_mood = if_else(
+      beepo == 5, lead(night_mood, default = first(night_mood)), NA_real_),
+    lead_night_arousal = if_else(
+      beepo == 5, lead(night_arousal, default = first(night_arousal)), NA_real_),
+    lead_night_valence = if_else(
+      beepo == 5, lead(night_valence, default = first(night_valence)), NA_real_)
+  ) %>% 
+  mutate(
+    mood = case_when(
+      beepo == 5 & is.na(mood) ~ lead_night_mood,
+      TRUE ~ mood
+    ),
+    arousal = case_when(
+      beepo == 5 & is.na(arousal) ~ lead_night_arousal,
+      TRUE ~ arousal
+    ),
+    valence = case_when(
+      beepo == 5 & is.na(valence) ~ lead_night_valence,
+      TRUE ~ valence
+    )
+  ) %>% ungroup()
+  # select(-starts_with("lag")) %>%
+```
+
+
+
+# ---------------
+
+```{r}
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Then aggregating the dataset based on beeps.
+```{r}
+# Example aggregation: Calculate the mean mood for each beep interval for each participant
+# You can change this to match the specific columns and summary statistics you need
+aggregated_data <- combined_data %>%
+  group_by(ID, beep_number) %>%
+  summarize(mean_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
+
+```
+
+
+```{r}
 write.csv(aggregated_data, "data/data_3_aggregated_BEEPS.csv")
 ```
 
@@ -703,6 +1007,60 @@ write.csv(aggregated_data, "data/data_3_aggregated_BEEPS.csv")
 
 
 
+
+
+
+
+# Train-test Split
+
+## Time
+Based on time
+```{r}
+test_days <- length(unique(data$date)) * (1/5)
+
+data_TRAIN_time <- data %>% filter(date <= max(data$date) - test_days)
+length(unique(data_TRAIN_time$date))
+
+
+data_TEST_time <- data %>% filter(date > max(data$date) - test_days)
+length(unique(data_TEST_time$date))
+```
+
+## EXPORT DATA_2 - TIME
+```{r}
+data_to_write_TRAIN <- fix_time(data_TRAIN_time)
+write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_TIME_not_aggregated.csv")
+
+data_to_write_TEST <- fix_time(data_TEST_time)
+write.csv(data_to_write_TEST, "data/data_2_TEST_TIME_not_aggregated.csv")
+```
+
+
+## Participant
+Based on participant
+
+```{r}
+participants <- unique(data$ID)
+set.seed(11042024) # Setting random seed with the date
+test_participants <- sample(participants, length(participants)* 1/4)
+test_participants
+
+data_TEST_id <- data_1 %>% filter(ID %in% test_participants)
+unique(as.numeric(data_TEST_id$ID))
+
+`%not_in%` <- purrr::negate(`%in%`)
+data_TRAIN_id <- data_1 %>% dplyr::filter(ID %not_in% test_participants)
+unique(as.numeric(data_TRAIN_id$ID))
+```
+
+## EXPORT DATA_2 - ID
+```{r}
+data_to_write_TRAIN <- fix_time(data_TRAIN_id)
+write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_ID_not_aggregated.csv")
+
+data_to_write_TEST <- fix_time(data_TEST_id)
+write.csv(data_to_write_TEST, "data/data_2_TEST_ID_not_aggregated.csv")
+```
 
 
 
@@ -725,9 +1083,7 @@ data_normal <- imputed %>%
   mutate_at(vars(arousal:appCat.weather), scale)
 ```
 
-```{r}
-imputed
-```
+
 
 
 
