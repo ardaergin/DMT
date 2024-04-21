@@ -48,3 +48,38 @@ recall and precision and gives information about type 1 and type 2 errors.
 
 
 \subsection{Task 2B}
+We will present the winning solution of the ICR - Identifying Age-Related Conditions Challenge which was a competition on
+Kaggle CITE that started at the 11th of May in 2023 and ended the same year on August the 11th. The aim
+was to perform a binary classification to identify if participants had at least one of three medical conditions, or if they had
+None. The data used for prediction contains 56 (anonymized) medical characteristics of participants. For evaluation a balanced logarithmic loss
+was used, this ensures that all classes are equally important in the evaluation. The given balanced loss can be seen in equation
+~\ref{eqn:balanced_loss}:
+\begin{equation}
+    Log Loss = \cfrac{-\frac{1}{N_0}\sum^{N_0}_{i=1}y_{0i}\log p_{0i}-\frac{1}{N_1}\sum^{N_1}_{i=1}y_{1i}\log p_{1i}}{2}
+    \label{eqn:balanced_loss}
+\end{equation}
+Where $N_{c}, c\in\{1, 2\}$ is the number of observations in class $c$ and $y_{c i}$ is 1 if observation $i$ belongs to class
+1, otherwise it is 0. $p_{ci}$ is the predicted probability of observation $i$ belonging to class $c$.
+
+The winner of this competition was a user with the name ROOM722. The main technique used was a Deep neural network, namely a
+Temporal Fusion Transformer (TFT). These types of models are capable of multi horizon forecasting, i.e. predicting multiple
+steps ahead for time series with a single prediction. The distinctiveness of the TFT is that it integrates static covariates
+encoders that enable usage of static vairables for prediction, gating mechanism (inspired by the LSTM gates) that allows
+sample dependent variable selection and a "temporal self-attention decoder to learn any long-term depen-
+dencies present within the dataset". By analyzing the variable selection mechanism the authors claim that is is also possible
+to derive patterns in the data that leads to certain classifications, i.e. the model allows for global explanability.
+
+The winners of the competition claimed that other ML algorithms such as Gradient boosting led to overfitting. Similarly,
+feature engineering also ended in overfitting to them. In the competition some metadata was provided, but this was discarded,
+since it was only available for the training and not the test dataset. The data itself was only marginally changed,
+missing values were imputed in the beginning, using the range of the respective variable or the median if there is no variation.
+The input features are also not normalized, but linearly projected using 8 neurons for each feature. The TFT inspired model
+uses dropout since the data is quite sparse, which is done to avoid overfitting. Apparently, using high dropout rates first,
+i.e. values of 0.75, then 0.5 and finally 0.25 for the three layers worked best. What is a little unconventional is tha the winner
+train models on k-fold-crossvalidation subsets of the data, 10 to 30 times per fold, selecting the two best models for each fold.
+The selected models are then used to predict the classification probabilities. The probabilities are then reweighted and averaged to handle
+class imbalances. Therefore the competitioner used an ensemble approach with models train on the CV datasets. Another interesting addition was
+to convert the problem into a muti-label prediction problem. Initially a baseline DNN was trained. The resulting differences of predicted
+classification probabilities to the actual class probabilities were then used to give each instance a hardness label. This was binary
+and 1, i.e. "hard" if ($y_{1i} = 1$ and $p_{1i} < 0.2$) or ($y_{0i} = 1$ and $p_{1i} > 0.8$), otherwise the "not hard" label (0) was assigned.
+This approach might help since the classification can also focus on samples that could be hard to predict.
