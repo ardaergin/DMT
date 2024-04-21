@@ -393,6 +393,12 @@ print(hist_filtered_time)
 ```
 
 
+```{r}
+(hist_time | hist_filtered_time) + 
+  patchwork::plot_layout(ncol = 2)
+```
+
+
 ### --------------------
 ```{r}
 data <- data_id_cleaned
@@ -1304,7 +1310,7 @@ imputed_data <- data
 
 
 ```{r}
-write.csv(imputed_data,"data/data_3_imputed_aggregated_beeps.csv")
+write.csv(imputed_data,"data/data_3_imputed_aggregated_beeps_TESTSET.csv")
 ```
 
 
@@ -1367,7 +1373,7 @@ aggregate_data_by_day <- aggregate_data_by_day %>%
 ```
 
 ```{r}
-write.csv(aggregate_data_by_day,"data/data_4_aggregated_day.csv")
+write.csv(aggregate_data_by_day,"data/data_4_aggregated_day_TESTSET.csv")
 ```
 
 
@@ -1405,7 +1411,7 @@ beep_new <- beep_new %>%
 
 
 ```{r}
-write.csv(beep_new, "data/data_4_imputed_aggregated_BEEP.csv")
+write.csv(beep_new, "data/data_4_imputed_aggregated_beep_TESTSET.csv")
 ```
 
 
