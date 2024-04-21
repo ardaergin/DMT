@@ -1293,8 +1293,56 @@ imputed_data <- data
 ```
 
 
+# ---------
+
+```{r}
+aggregate_data_by_day <- imputed_data %>%
+  group_by(ID, date) %>%
+  summarise(
+    observation_day = max(observation_day),
+    mood = mean(mood, na.rm = TRUE),
+    arousal = mean(arousal, na.rm = TRUE),
+    valence = mean(valence, na.rm = TRUE),
+    activity = mean(activity, na.rm = TRUE),
+    screen = sum(screen, na.rm = TRUE),
+    call = sum(call, na.rm = TRUE),
+    sms = sum(sms, na.rm = TRUE),
+    appCat.builtin = sum(appCat.builtin, na.rm = TRUE),
+    appCat.communication = sum(appCat.communication, na.rm = TRUE),
+    appCat.entertainment = sum(appCat.entertainment, na.rm = TRUE),
+    appCat.finance = sum(appCat.finance, na.rm = TRUE),
+    appCat.game = sum(appCat.game, na.rm = TRUE),
+    appCat.office = sum(appCat.office, na.rm = TRUE),
+    appCat.other = sum(appCat.other, na.rm = TRUE),
+    appCat.social = sum(appCat.social, na.rm = TRUE),
+    appCat.travel = sum(appCat.travel, na.rm = TRUE),
+    appCat.unknown = sum(appCat.unknown, na.rm = TRUE),
+    appCat.utilities = sum(appCat.utilities, na.rm = TRUE), 
+    appCat.weather = sum(appCat.weather, na.rm = TRUE), 
+    night_physical_activity = mean(night_physical_activity),
+    night_screen = mean(night_screen),
+    night_appcat_combined = mean(night_appcat_combined),
+    SUM_inactivity_timediff = mean(SUM_inactivity_timediff),
+    weekday = max(weekday),
+    week_of_year = max(week_of_year),
+    .groups = "drop")
+
+colnames(aggregate_data_by_day)[1] = "id"
+colnames(aggregate_data_by_day)[2] = "datetime"
+```
+
+
+```{r}
+write.csv(aggregate_data_by_day,"data/data_4_aggregated_day.csv")
+```
+
 
 # Creating Mood Lags
+
+
+
+
+
 
 DAY:
 ```{r}
@@ -1325,10 +1373,16 @@ data <- data %>%
 
 
 
+```{r}
+write.csv(data, "data/data_3_imputed_aggregated_beeps.csv")
+```
 
 
 
 
+```{r}
+
+```
 
 
 
