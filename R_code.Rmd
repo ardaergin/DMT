@@ -977,8 +977,7 @@ choosing night variables and some cleaning
 data <- data %>% subset(
   select = -c(night_mood, night_arousal, night_valence,
               total_time_diff, max_time_diff, 
-              total_inactivity, max_inactivity,
-              MAX_inactivity_timediff, 
+              total_inactivity, max_inactivity, 
               lead_night_mood, lead_night_arousal, lead_night_valence))
 
 # Creating Variable: the day of the week (of Observation)
@@ -1015,7 +1014,7 @@ for (i in names(data)) {
 for (i in names(data)) {
   if (is.numeric(data[[i]])) {
     hist(data[[i]], main = i)
-    hist(log(data[[i]]), main = i)
+    hist(log1p(data[[i]]), main = i)
   }
 }
 ```
@@ -1026,13 +1025,13 @@ for (i in names(data)) {
 data_log_transform <- data
 # Columns to log-transform
 columns_to_log_transform <- c(
-  "activity",
+  # "activity", "night_physical_activity",
   "screen", "appCat.builtin", "appCat.communication",
   "appCat.entertainment", "appCat.finance", "appCat.game",
   "appCat.office", "appCat.other", "appCat.social",
   "appCat.travel", "appCat.unknown", "appCat.utilities", 
   "appCat.weather", 
-  "night_physical_activity", "night_screen", 
+  "night_screen", 
   "night_appcat_combined")
 
 # Apply log transformation to selected columns
@@ -1041,10 +1040,21 @@ data_log_transform[columns_to_log_transform] <-
   lapply(data_log_transform[columns_to_log_transform], log1p)
 ```
 
+
 ```{r}
-log1p()
-hist((data_log_transform$appCat.builtin))
+library(glmmTMB)
+data_log_transform$SUM_inactivity_timediff
+# Let's say you have a random effect 'random_effect_var' which is a grouping factor like a subject ID or a site ID.
+zip_mixed_model <- glmmTMB::glmmTMB(
+  mood ~ arousal + valence + 
+    appCat.builtin + appCat.communication + appCat.entertainment + 
+    week_of_year + weekday + SUM_inactivity_timediff + (1 | ID), 
+  zi=~ appCat.builtin + appCat.communication + appCat.entertainment, 
+  data = data_log_transform, 
+    family = nbinom1)
+
 ```
+
 
 
 ```{r}
@@ -1158,17 +1168,17 @@ unique(as.numeric(data_TRAIN_id$ID))
 
 ## EXPORT DATA_2 - ID
 ```{r}
-data_to_write_TRAIN <- fix_time(data_TRAIN_id)
+# data_to_write_TRAIN <- fix_time(data_TRAIN_id)
 write.csv(data_TRAIN_id, "data/data_2_TRAIN_ID_aggregated_beep.csv")
 
-data_to_write_TEST <- fix_time(data_TEST_id)
+# data_to_write_TEST <- fix_time(data_TEST_id)
 write.csv(data_TEST_id, "data/data_2_TEST_ID_aggregated_beep.csv")
 ```
 
 
 # ---------
 ```{r}
-data <- data_TRAIN_id
+data <- data_TEST_id
 ```
 
 
@@ -1293,8 +1303,14 @@ imputed_data <- data
 ```
 
 
+```{r}
+write.csv(imputed_data,"data/data_3_imputed_aggregated_beeps.csv")
+```
+
+
 # ---------
 
+# Aggregate by Day
 ```{r}
 aggregate_data_by_day <- imputed_data %>%
   group_by(ID, date) %>%
@@ -1325,12 +1341,30 @@ aggregate_data_by_day <- imputed_data %>%
     SUM_inactivity_timediff = mean(SUM_inactivity_timediff),
     weekday = max(weekday),
     week_of_year = max(week_of_year),
+    appCat_total = sum(
+      appCat.builtin,
+      appCat.communication,
+      appCat.entertainment,
+      appCat.finance,
+      appCat.game,
+      appCat.office,
+      appCat.other,
+      appCat.social,
+      appCat.travel,
+      appCat.unknown,
+      appCat.utilities,
+      appCat.weather),
     .groups = "drop")
 
 colnames(aggregate_data_by_day)[1] = "id"
 colnames(aggregate_data_by_day)[2] = "datetime"
 ```
 
+```{r}
+# Calculating the Daily Average Mood
+aggregate_data_by_day <- aggregate_data_by_day %>%
+  group_by(id) %>% mutate(mood_of_next_day = lead(mood))
+```
 
 ```{r}
 write.csv(aggregate_data_by_day,"data/data_4_aggregated_day.csv")
@@ -1339,21 +1373,21 @@ write.csv(aggregate_data_by_day,"data/data_4_aggregated_day.csv")
 
 # Creating Mood Lags
 
-
-
-
+```{r}
+beep_new <- imputed_data
+```
 
 
 DAY:
 ```{r}
 # Calculating the Daily Average Mood
-daily_moods <- data %>%
+daily_moods <- beep_new %>%
   group_by(ID, observation_day) %>%
   summarise(daily_average_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
 
 # Join the daily averages back to the original data 
 # and then calculate the average mood for the next day
-data <- data %>%
+beep_new <- beep_new %>%
   left_join(daily_moods, by = c("ID", "observation_day")) %>% 
   group_by(ID) %>% 
   mutate(mood_of_next_day = lead(daily_average_mood, n=5)) %>%
@@ -1362,7 +1396,7 @@ data <- data %>%
 
 BEEP:
 ```{r}
-data <- data %>% 
+beep_new <- beep_new %>% 
   group_by(ID) %>% 
   mutate(
     mood_of_next_beep = lead(mood)
@@ -1370,19 +1404,11 @@ data <- data %>%
 ```
 
 
-
-
-
 ```{r}
-write.csv(data, "data/data_3_imputed_aggregated_beeps.csv")
+write.csv(beep_new, "data/data_4_imputed_aggregated_BEEP.csv")
 ```
 
 
-
-
-```{r}
-
-```
 
 
 
@@ -1409,18 +1435,6 @@ aggregated_data <- combined_data %>%
   summarize(mean_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
 
 ```
-
-
-```{r}
-write.csv(aggregated_data, "data/data_3_aggregated_BEEPS.csv")
-```
-
-
-
-
-
-
-
 
 
 
@@ -1653,6 +1667,8 @@ model <- lme4::lmer(
     (1 + time|ID), 
   data = aggregated_data)
 summary(model)
+
+
 ```
 
 
