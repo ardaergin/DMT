@@ -8,6 +8,7 @@ class WindowGenerator():
     def __init__(
         self,
         input_width,
+        expected_window_length,
         label_width,
         label_column,
         feature_columns,
@@ -18,6 +19,7 @@ class WindowGenerator():
         datetime_label,
         regression=False
     ):
+        self.expected_window_length = expected_window_length
         self.regression = regression
         self.feature_columns = feature_columns
         self.num_classes = num_classes
@@ -80,22 +82,23 @@ class WindowGenerator():
                 continue
             current_window_start = obs_start
             # minus one since we include the first and last point
-            current_window_end = current_window_start + datetime.timedelta(days=self.input_width-1)
+            current_window_end = current_window_start + datetime.timedelta(days=self.total_window_size-1)
             
             while current_window_end <= obs_end:
                 data_sample = df_subject[
                 ((df_subject["date"] >= current_window_start) &\
                 (df_subject["date"] <= current_window_end))
                 ]
-                if len(data_sample) != self.total_window_size:
+                if len(data_sample) != self.expected_window_length:
                     pass
                 else:
-                    x = np.expand_dims(data_sample[self.feature_columns].values, axis=0)
-                    X_windowed = np.concatenate([
-                        X_windowed, x
-                        ], axis=0)
                     added_outcome = np.array([data_sample.iloc[-1][self.label_column]])
-                    Y = np.concatenate([Y, added_outcome], axis=0)
+                    if not np.isnan(added_outcome).any():
+                        x = np.expand_dims(data_sample[self.feature_columns].values, axis=0)
+                        X_windowed = np.concatenate([
+                            X_windowed, x
+                            ], axis=0)
+                        Y = np.concatenate([Y, added_outcome], axis=0)
                 #print("added frame")
                 current_window_end = current_window_end + datetime.timedelta(days=1)
                 current_window_start = current_window_start + datetime.timedelta(days=1)
