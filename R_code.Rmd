@@ -26,6 +26,11 @@ library(igraph)
 
 # Bayesian Multilevel
 library(mHMMbayes)
+
+# Multiple Imputations
+library(mice)
+library(micemd)
+library(miceadds)
 ```
 
 ```{r}
@@ -767,7 +772,7 @@ data <- combined_data_clean_removed_obs_day_0
 # Sleep
 
 ```{r}
-data_beepo_0 <- data %>% filter(
+data_beepo_0 <- combined_data_clean_removed_obs_day_0 %>% filter(
   beepo == 0 | (time == "21:00:01" & is.na(obs_number)))
 ```
 
@@ -800,7 +805,6 @@ data_beepo_0 <- data_beepo_0 %>%
 
 ## Inactivity
 
-if ---- 
 ```{r}
 # Inactivity
 data_beepo_0 <- data_beepo_0 %>% mutate(
@@ -840,8 +844,6 @@ table(data_beepo_0$consecutive_inactive_fix)
 ```
 
 ```{r}
-sum(!is.na(data$mood))
-
 aggregated_night_data <- data_beepo_0 %>%
   group_by(ID, observation_day) %>%
   summarise(
@@ -868,10 +870,10 @@ aggregated_night_data <- data_beepo_0 %>%
       appCat.weather, na.rm = T),
     
     total_time_diff = safe_sum(time_diff_valid),
-    max_time_diff = max(time_diff_valid),
+    max_time_diff = max(time_diff_valid, na.rm = T),
     
     total_inactivity = safe_sum(consecutive_inactive_fix),
-    max_inactivity = max(consecutive_inactive_fix),
+    max_inactivity = max(consecutive_inactive_fix, na.rm = T),
     
     SUM_inactivity_timediff = sum(
       total_inactivity, 
@@ -882,7 +884,7 @@ aggregated_night_data <- data_beepo_0 %>%
       max_time_diff, 
       max_inactivity, 
       na.rm = T),
-    .groups = "drop",)
+    .groups = "drop")
 ```
 
 
@@ -918,47 +920,407 @@ aggregated_data <- combined_data_clean_removed_obs_day_0 %>%
 
 ```{r}
 data_with_night <- aggregated_data %>%
-  left_join(aggregated_night_data, by = c("ID", "observation_day"))
+  left_join(aggregated_night_data, by = c("ID", "observation_day")) %>% 
+  filter(beepo != 0)
 ```
 
 NIGHT MOOD REPLACING
 ```{r}
-night_mood_replacement <- data_with_night %>%
+data_with_night <- data_with_night %>%
   arrange(ID, observation_day, beepo) %>%
-  group_by(ID) %>%
-  mutate(
+  group_by(ID) %>% mutate(
     # Create lagged versions of night variables to fill backwards
     lead_night_mood = if_else(
-      beepo == 5, lead(night_mood, default = first(night_mood)), NA_real_),
+      beepo == 5, 
+      lead(night_mood, default = first(night_mood)), 
+      NA_real_),
+    
     lead_night_arousal = if_else(
-      beepo == 5, lead(night_arousal, default = first(night_arousal)), NA_real_),
+      beepo == 5, 
+      lead(night_arousal, default = first(night_arousal)),
+      NA_real_),
+    
     lead_night_valence = if_else(
-      beepo == 5, lead(night_valence, default = first(night_valence)), NA_real_)
-  ) %>% 
-  mutate(
+      beepo == 5, 
+      lead(night_valence, default = first(night_valence)), 
+      NA_real_)) %>% ungroup()
+
+data_with_night <- data_with_night %>% mutate(
     mood = case_when(
       beepo == 5 & is.na(mood) ~ lead_night_mood,
+      beepo == 5 & !is.na(mood) & !is.na(lead_night_mood) ~ 
+        (mood + lead_night_mood)/2,
       TRUE ~ mood
     ),
     arousal = case_when(
       beepo == 5 & is.na(arousal) ~ lead_night_arousal,
+      beepo == 5 & !is.na(arousal) & !is.na(lead_night_arousal) ~ 
+        (arousal + lead_night_arousal)/2,
       TRUE ~ arousal
     ),
     valence = case_when(
       beepo == 5 & is.na(valence) ~ lead_night_valence,
-      TRUE ~ valence
+      beepo == 5 & !is.na(valence) & !is.na(lead_night_valence) ~ 
+        (valence + lead_night_valence)/2,
+      TRUE ~ valence)
     )
-  ) %>% ungroup()
-  # select(-starts_with("lag")) %>%
 ```
 
+
+```{r}
+data <- data_with_night
+```
+
+
+choosing night variables and some cleaning 
+```{r}
+data <- data %>% subset(
+  select = -c(night_mood, night_arousal, night_valence,
+              total_time_diff, max_time_diff, 
+              total_inactivity, max_inactivity,
+              MAX_inactivity_timediff, 
+              lead_night_mood, lead_night_arousal, lead_night_valence))
+
+# Creating Variable: the day of the week (of Observation)
+data <- data %>%
+  mutate(weekday = weekdays(date),
+         weekday = as.numeric(factor(
+           weekday,
+           labels = 1:7,
+           levels = c("Monday", "Tuesday", 
+                      "Wednesday", "Thursday", 
+                      "Friday", "Saturday", 
+                      "Sunday"))))
+
+# Creating Variable: the week of the year (of Observation)
+data <- data %>%
+  mutate(week_of_year = lubridate::week(date))
+```
 
 
 # ---------------
 
+# Outliers and Log Transform
 ```{r}
+for (i in names(data)) {
+  if (is.numeric(data[[i]])) {
+    boxplot(data[[i]], main = i)
+  }
+}
 
 ```
+
+
+```{r}
+for (i in names(data)) {
+  if (is.numeric(data[[i]])) {
+    hist(data[[i]], main = i)
+    hist(log(data[[i]]), main = i)
+  }
+}
+```
+
+
+
+```{r}
+data_log_transform <- data
+# Columns to log-transform
+columns_to_log_transform <- c(
+  "activity",
+  "screen", "appCat.builtin", "appCat.communication",
+  "appCat.entertainment", "appCat.finance", "appCat.game",
+  "appCat.office", "appCat.other", "appCat.social",
+  "appCat.travel", "appCat.unknown", "appCat.utilities", 
+  "appCat.weather", 
+  "night_physical_activity", "night_screen", 
+  "night_appcat_combined")
+
+# Apply log transformation to selected columns
+# log1p for handling zero by adding 1
+data_log_transform[columns_to_log_transform] <-
+  lapply(data_log_transform[columns_to_log_transform], log1p)
+```
+
+```{r}
+log1p()
+hist((data_log_transform$appCat.builtin))
+```
+
+
+```{r}
+data_normal <- data %>%
+  mutate_at(vars(activity:night_appcat_combined), scale)
+```
+
+
+```{r}
+# Fitting a linear model with the same fixed effects
+lm_model <- lm(mood ~ arousal + valence + activity + screen + call + sms +
+               appCat.builtin + appCat.communication + appCat.entertainment +
+               appCat.finance + appCat.game + appCat.office + appCat.other +
+               appCat.social + appCat.travel + appCat.unknown + appCat.utilities +
+               appCat.weather + night_physical_activity + night_screen +
+               night_appcat_combined + SUM_inactivity_timediff + weekday +
+               week_of_year, data = data)
+
+# Calculating VIF for the linear model
+car::vif(lm_model)
+
+```
+
+
+```{r}
+data$week_of_year
+model <- lme4::lmer(
+  mood ~ 
+    arousal + valence +
+    activity + screen + 
+    call + sms + 
+    appCat.builtin + appCat.communication + 
+    appCat.entertainment + appCat.finance + 
+    appCat.game + appCat.office + appCat.other + 
+    appCat.social + appCat.travel + appCat.unknown + 
+    appCat.utilities + appCat.weather + night_physical_activity + 
+    night_screen + night_appcat_combined + SUM_inactivity_timediff + 
+    weekday + week_of_year + 
+    (1|ID/observation_day), 
+  data=data)
+summary(model)
+car::vif(model)
+
+model <- lmerTest::lmer(mood ~ 
+    arousal + valence +
+    activity + screen + 
+    call + sms + 
+    appCat.builtin + appCat.communication + 
+    appCat.entertainment + appCat.finance + 
+    appCat.game + appCat.office + appCat.other + 
+    appCat.social + appCat.travel + appCat.unknown + 
+    appCat.utilities + appCat.weather + night_physical_activity + 
+    night_screen + night_appcat_combined + SUM_inactivity_timediff + 
+    weekday + week_of_year + 
+    (1|ID/observation_day), 
+  data=data)
+```
+
+
+
+
+
+
+
+
+# ---------
+
+
+
+# Train-test Split
+
+## Time
+Based on time
+```{r}
+test_days <- length(unique(data$date)) * (1/5)
+
+data_TRAIN_time <- data %>% filter(date <= max(data$date) - test_days)
+length(unique(data_TRAIN_time$date))
+
+
+data_TEST_time <- data %>% filter(date > max(data$date) - test_days)
+length(unique(data_TEST_time$date))
+```
+
+## EXPORT DATA_2 - TIME
+```{r}
+data_to_write_TRAIN <- fix_time(data_TRAIN_time)
+write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_TIME_not_aggregated.csv")
+
+data_to_write_TEST <- fix_time(data_TEST_time)
+write.csv(data_to_write_TEST, "data/data_2_TEST_TIME_not_aggregated.csv")
+```
+
+
+## Participant
+Based on participant
+
+```{r}
+participants <- unique(data$ID)
+set.seed(11042024) # Setting random seed with the date
+test_participants <- sample(participants, length(participants)* 1/5)
+test_participants
+
+data_TEST_id <- data %>% filter(ID %in% test_participants)
+unique(as.numeric(data_TEST_id$ID))
+
+`%not_in%` <- purrr::negate(`%in%`)
+data_TRAIN_id <- data %>% dplyr::filter(ID %not_in% test_participants)
+unique(as.numeric(data_TRAIN_id$ID))
+```
+
+## EXPORT DATA_2 - ID
+```{r}
+data_to_write_TRAIN <- fix_time(data_TRAIN_id)
+write.csv(data_TRAIN_id, "data/data_2_TRAIN_ID_aggregated_beep.csv")
+
+data_to_write_TEST <- fix_time(data_TEST_id)
+write.csv(data_TEST_id, "data/data_2_TEST_ID_aggregated_beep.csv")
+```
+
+
+# ---------
+```{r}
+data <- data_TRAIN_id
+```
+
+
+# MICE
+
+Checking NAs in all data
+```{r}
+for(col in colnames(data)){
+  print(sum(is.na(data[[col]])))
+}
+```
+
+
+```{r}
+# x <- data
+# devtools::install_github(repo = "amices/mice")
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["valence"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["valence", c(
+  "ID", "observation_day", "beepo", 
+  "arousal", "mood", 
+  "activity", "night_physical_activity")] <- c(
+    -2, -2, -2, 
+    0, 0, 
+    0, 0)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10)
+data <- mice::complete(res.mice.md)
+
+
+
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["arousal"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["arousal", c(
+  "ID", "observation_day", "beepo", 
+  "mood", 
+  "activity", "night_physical_activity")] <- c(
+    -2, -2, -2, 
+    0, 
+    0, 0)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10)
+data <- mice::complete(res.mice.md)
+
+
+
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["activity"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["activity", c(
+  "ID", "observation_day", "beepo", 
+  "mood", 
+  "night_physical_activity")] <- c(
+    -2, -2, -2, 
+    0, 
+    0)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10)
+data <- mice::complete(res.mice.md)
+
+
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["night_physical_activity"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["night_physical_activity", c(
+  "ID", "observation_day", "beepo", 
+  "mood")] <- c(
+    -2, -2, -2, 
+    0)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10)
+data <- mice::complete(res.mice.md)
+
+
+
+
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["mood"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["mood", c(
+  "ID", "observation_day", "beepo")] <- c(
+    -2, -2, -2)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10)
+data <- mice::complete(res.mice.md)
+```
+
+```{r}
+imputed_data <- data
+```
+
+
+
+# Creating Mood Lags
+
+DAY:
+```{r}
+# Calculating the Daily Average Mood
+daily_moods <- data %>%
+  group_by(ID, observation_day) %>%
+  summarise(daily_average_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
+
+# Join the daily averages back to the original data 
+# and then calculate the average mood for the next day
+data <- data %>%
+  left_join(daily_moods, by = c("ID", "observation_day")) %>% 
+  group_by(ID) %>% 
+  mutate(mood_of_next_day = lead(daily_average_mood, n=5)) %>%
+  ungroup()
+```
+
+BEEP:
+```{r}
+data <- data %>% 
+  group_by(ID) %>% 
+  mutate(
+    mood_of_next_beep = lead(mood)
+)
+```
+
 
 
 
@@ -1009,58 +1371,6 @@ write.csv(aggregated_data, "data/data_3_aggregated_BEEPS.csv")
 
 
 
-
-
-# Train-test Split
-
-## Time
-Based on time
-```{r}
-test_days <- length(unique(data$date)) * (1/5)
-
-data_TRAIN_time <- data %>% filter(date <= max(data$date) - test_days)
-length(unique(data_TRAIN_time$date))
-
-
-data_TEST_time <- data %>% filter(date > max(data$date) - test_days)
-length(unique(data_TEST_time$date))
-```
-
-## EXPORT DATA_2 - TIME
-```{r}
-data_to_write_TRAIN <- fix_time(data_TRAIN_time)
-write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_TIME_not_aggregated.csv")
-
-data_to_write_TEST <- fix_time(data_TEST_time)
-write.csv(data_to_write_TEST, "data/data_2_TEST_TIME_not_aggregated.csv")
-```
-
-
-## Participant
-Based on participant
-
-```{r}
-participants <- unique(data$ID)
-set.seed(11042024) # Setting random seed with the date
-test_participants <- sample(participants, length(participants)* 1/4)
-test_participants
-
-data_TEST_id <- data_1 %>% filter(ID %in% test_participants)
-unique(as.numeric(data_TEST_id$ID))
-
-`%not_in%` <- purrr::negate(`%in%`)
-data_TRAIN_id <- data_1 %>% dplyr::filter(ID %not_in% test_participants)
-unique(as.numeric(data_TRAIN_id$ID))
-```
-
-## EXPORT DATA_2 - ID
-```{r}
-data_to_write_TRAIN <- fix_time(data_TRAIN_id)
-write.csv(data_to_write_TRAIN, "data/data_2_TRAIN_ID_not_aggregated.csv")
-
-data_to_write_TEST <- fix_time(data_TEST_id)
-write.csv(data_to_write_TEST, "data/data_2_TEST_ID_not_aggregated.csv")
-```
 
 
 
