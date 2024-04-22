@@ -1,0 +1,621 @@
+---
+title: "Mood"
+author: "Arda Ergin"
+date: "2024-04-02"
+output: html_document
+---
+
+# Setup
+
+```{r}
+data_raw <- read.csv("data/data.csv")
+```
+
+
+How many variables and how many participants?
+```{r}
+unique(data_raw$variable)
+unique(data_raw$id)
+```
+
+Some Quick Fixes:
+```{r}
+##### ID #####
+# Getting a better ID column:
+data_0 <- data_raw %>%
+  mutate(ID = as.numeric(sapply(
+    strsplit(id, split = '\\.'), function(x) x[2])))
+# Factorizing the ID variable 
+# (it causes some headaches, so I will not do this until data analysis)
+### data_0$ID <- factor(data_0$ID) ###
+
+##### "X" #####
+# Changing the name for the "X" variable
+colnames(data_0)[1] <- "obs_number"
+
+
+# Getting rid of the id variable
+data_1 <- data_0[,c("obs_number", "time", "ID", "variable", "value")]
+```
+
+
+fixing time:
+```{r}
+# Checking if there is any NAs in the `time` variable
+any(is.na(data_1$time))
+
+# Transforming the variable into an time variable:
+data_1 <- data_1 %>% mutate(
+  date_time = as.POSIXct(
+    as.character(time), 
+    format="%Y-%m-%d %H:%M:%OS"))
+data_2 <- subset(data_1, select = -time)
+
+# Quick Summary
+summary(data_2$date_time)
+max(data_2$date_time) - min(data_2$date_time)
+```
+
+Long to Wide Transformation:
+```{r}
+wide_data <- tidyr::pivot_wider(
+  data_1, 
+  names_from = variable, 
+  values_from = value)
+
+data <- as.data.frame(wide_data)
+```
+
+Looking at Just one Individual
+```{r}
+data_id_1 <- data %>% filter(ID == 1)
+```
+
+
+
+
+# Cleaning
+## Checking Ranges
+```{r}
+for(i in 1:ncol(data)){
+  cat("\n=========\n")
+  cat(colnames(data)[i])
+  cat("\n=========\n")
+  print(summary(data[,i]))
+}
+```
+
+Based on these, cleaning the necessary data:
+```{r}
+# Taking a look at the problematic data
+problematic <- data %>% filter(
+  appCat.builtin < 0 | appCat.entertainment < 0)
+problematic
+
+# Filtering these 3 responses 
+data_cleaner <- data %>% filter(
+  (appCat.builtin >= 0 | is.na(appCat.builtin)) & 
+  (appCat.entertainment >= 0 | is.na(appCat.entertainment))
+  )
+
+data <- data_cleaner
+```
+
+## --------------------
+
+## Checking for Duplicates
+```{r}
+# Identifying duplicate rows
+duplicates <- duplicated(data)
+
+# View duplicate rows
+data[duplicates, ]
+```
+
+There are no duplicate rows in the dataset.
+
+## EXPORT DATA_0
+```{r}
+write.csv(data, "data/data_0_cleaned_responses.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Investigating Variables
+
+## Time
+
+### New Variables
+```{r}
+# Creating Variable: the Date (of Observation)
+data <- data %>%
+  mutate(date = as.Date(date_time))
+
+# Creating Variable: the Time (of Observation)
+data <- data %>%
+  mutate(time = format(date_time, "%H:%M:%S"))
+
+# Creating Variable: the Hour (of Observation)
+data <- data %>%
+  mutate(hour = format(date_time, "%H"))
+data$hour <- as.numeric(data$hour)
+```
+
+### Visual: Entire Time
+```{r}
+# Histogram
+hist_time <- data %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations (17-02-2014 — 09-06-2014)", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(
+    breaks = seq(as.Date(min(data$date)), 
+                 as.Date(max(data$date)), 
+                 by = "1 week"), 
+    date_labels = "%d-%m") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_time)
+```
+
+
+### FILTER Time: Trimming
+
+```{r}
+table(data$date)
+# 2014-03-13 or 2014-03-20
+# 2014-05-29 or 2014-05-05
+```
+
+```{r}
+for (participant_ID in unique(data$ID)){
+  cat(paste("participant ID: ",participant_ID))
+  cat("\n")
+  dataset <- data %>% filter(ID == participant_ID)
+  print(min(dataset$date))
+  print(max(dataset$date))
+  cat("\n")
+}
+```
+
+**Filtering** (depreciated technically ahahahaha)
+```{r}
+# > 4000
+data_filter_time <- data %>% filter(
+  date > "2014-03-20" & date < "2014-05-05")
+
+# A bit more conservative approach: 
+# data_filter_time <- data %>% filter(date > "2014-03-13" & date < "2014-05-29")
+```
+
+
+```{r}
+hist_filtered_time <- data_filter_time %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data_filter_time$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations (21-03-2014 — 04-05-2014)", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(
+    breaks = seq(as.Date("2014-03-21"), 
+                 as.Date("2014-05-04"), 
+                 by = "1 week"), 
+    date_labels = "%d-%m") + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_filtered_time)
+```
+
+```{r}
+(hist_time | hist_filtered_time) + 
+  patchwork::plot_layout(ncol = 2)
+```
+
+```{r}
+# data <- data_filter_time
+```
+
+
+### FILTER time: NA Removal
+I have identified these manually after aggregating and looking at every participant:
+```{r}
+clean_id_time <- function(data){
+  data_id_cleaned <- data %>% dplyr::filter(
+    (ID == 1 & 
+       date > "2014-03-20" & 
+       date < "2014-05-05") | 
+    (ID == 2 & 
+       date > "2014-03-15" & 
+       date < "2014-04-15") | 
+    (ID == 3 & 
+       date > "2014-03-20" & 
+       date < "2014-05-08") | 
+    (ID == 5 & 
+       date > "2014-03-14" & 
+       date < "2014-05-05") | 
+    (ID == 6 & 
+       date > "2014-03-24" & 
+       date < "2014-05-08") | 
+    (ID == 7 & 
+       date > "2014-03-18" & 
+       date < "2014-05-03") | 
+    (ID == 8 & 
+       date > "2014-03-12" & 
+       date < "2014-05-05") | 
+    (ID == 9 & 
+       date > "2014-03-21" & 
+       date < "2014-04-27") | 
+    (ID == 12 & 
+       date > "2014-03-26" & 
+       date < "2014-05-05") | 
+    (ID == 13 & 
+       date > "2014-03-13" & 
+       date < "2014-05-02") | 
+    (ID == 13 & 
+       date > "2014-03-13" & 
+       date < "2014-05-03") | 
+    (ID == 14 & 
+       date > "2014-03-20" & 
+       date < "2014-05-05") | 
+    (ID == 15 & 
+       date > "2014-03-13" & 
+       date < "2014-05-06") | 
+    (ID == 16 & 
+       date > "2014-03-13" & 
+       date < "2014-05-04") | 
+    (ID == 17 & 
+       date > "2014-03-20" & 
+       date < "2014-05-05") | 
+    (ID == 19 & 
+       date > "2014-03-20" & 
+       date < "2014-05-04") | 
+    (ID == 20 & 
+       date > "2014-03-21" & 
+       date < "2014-04-29") | 
+    (ID == 23 & 
+       date > "2014-03-21" & 
+       date < "2014-05-04") | 
+    (ID == 24 & 
+       date > "2014-04-14" & 
+       date < "2014-06-08") |
+    (ID == 25 & 
+       date > "2014-04-08" & 
+       date < "2014-05-08") | 
+    (ID == 26 & 
+       date > "2014-04-12" & 
+       date < "2014-05-29") | 
+    (ID == 27 & 
+       date > "2014-04-02" & 
+       date < "2014-05-14") | 
+    (ID == 28 & 
+       date > "2014-03-31" & 
+       date < "2014-05-09") | 
+    (ID == 29 & 
+       date > "2014-03-31" & 
+       date < "2014-05-14") |
+    (ID == 30 & 
+       date > "2014-03-19" & 
+       date < "2014-05-05") | 
+    (ID == 31 & 
+       date > "2014-04-01" & 
+       date < "2014-05-06") | 
+    (ID == 32 & 
+       date > "2014-04-01" & 
+       date < "2014-05-13") | 
+    (ID == 33 & 
+       date > "2014-04-15" & 
+       date < "2014-05-31")
+  )
+  return(data_id_cleaned)
+}
+data_id_cleaned <- clean_id_time(data)
+```
+
+```{r}
+hist_filtered_time <- data_id_cleaned %>% ggplot(aes(x = date)) + 
+  geom_histogram(bins = length(unique(data_id_cleaned$date)), 
+                 color = "black", 
+                 fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Observations (21-03-2014 — 04-05-2014)", 
+       x = "Date-Time", 
+       y = "Frequency") + 
+  scale_x_date(date_labels = "%d-%m",
+               breaks = seq(
+                 as.Date("2014-03-13"), 
+                 as.Date("2014-06-07"), 
+                 by = "1 week")) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+print(hist_filtered_time)
+```
+
+
+```{r}
+(hist_time | hist_filtered_time) + 
+  patchwork::plot_layout(ncol = 2)
+```
+
+
+### --------------------
+```{r}
+data <- data_id_cleaned
+```
+
+
+### EXPORT DATA_1
+
+```{r}
+data_to_write <- fix_time(data)
+write.csv(data_to_write, "data/data_1_cleaned_and_time_filtered.csv")
+```
+
+
+### Visual: Hour x Observ.
+```{r}
+data %>% ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "purple2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+```
+
+### Visual: Hour x Activity
+
+```{r}
+# Summarizing Per Weekday
+hour_activity <- data %>%
+  group_by(hour) %>%
+  summarise(
+    mean_act = mean(activity, na.rm = TRUE),
+    sd_act = sd(activity, na.rm = TRUE),
+    n = sum(!is.na(activity)),
+    sem = sd_act / sqrt(n),
+    ci_lower = mean_act - qnorm(0.975) * sem,
+    ci_upper = mean_act + qnorm(0.975) * sem
+  )
+
+# Bar Plot
+hour_activity %>%
+  ggplot(aes(
+    x = hour, 
+    y = mean_act)) + 
+  geom_col(color = "black", 
+           fill = "skyblue1") +
+  geom_errorbar(aes(ymin = ci_lower, 
+                    ymax = ci_upper), 
+                width = .2) + 
+  theme_classic(base_family = "Times") +
+  labs(
+    title = "Mean Activity per Hour",
+    x = "Hour",
+    y = "Mean Activity"
+  )
+```
+
+
+## Mood
+```{r}
+# Quick Summary
+summary(wide_data$mood)
+table(wide_data$mood)
+
+# Histogram
+hist_mood <- data %>% filter(!is.na(mood)) %>% 
+  ggplot(aes(x = mood)) + 
+  geom_histogram(bins = 10, color = "black", fill = "firebrick") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Mood", 
+       x = "Mood", 
+       y = "Frequency")
+print(hist_mood)
+```
+
+```{r}
+mood_summary <- data %>%
+  group_by(ID) %>%
+  summarise(
+    mean_mood = mean(mood, na.rm = TRUE),
+    median_mood = median(mood, na.rm = TRUE),
+    sd_mood = sd(mood, na.rm = TRUE),
+    max_mood = max(mood, na.rm = TRUE),
+    min_mood = min(mood, na.rm = TRUE))
+mood_summary
+```
+
+Important the understand our DV, so good to summarize is for each participant.        
+- Overall, there does not seem to be much of a difference between the individuals in terms of their mean and median.
+- On the other hand, mood fluctuations are not the same for all individuals, and there might be individuals who experience more fluctuations.
+
+```{r}
+for (participant in unique(data$ID)) {
+  moods <- data %>%
+    filter(!is.na(mood))
+  
+  mood <- moods %>% filter(ID == participant)
+  
+  p <- mood %>% ggplot(
+    aes(x = date_time, 
+        y = mood)) +
+    geom_line(color = colors()[sample(8:length(colors()),1)]) + 
+    scale_y_continuous(limits = c(1, 10)) +
+    theme_classic(base_family = "Times") + 
+    theme(legend.position = "none") +
+    labs(title = paste(
+      "Mood Over Time for Participant Number", 
+      participant), 
+         x = "Time", 
+         y = "Mood")
+  
+  print(p)
+}
+```
+
+
+
+Participant number 7 have too much fluctuations and can be considered an outlier among the other participants. It might possibly be a good idea to exclude them. Maybe also participant number 33.
+
+```{r}
+# Creating a new variable in our "mood_summary" 
+# Putting the ID to the column if the participant is an outlier 
+# FROM: https://www.r-bloggers.com/2022/08/how-to-label-outliers-in-boxplots-in-ggplot2/
+find_outlier <- function(x) {
+  return(x < quantile(x, .25) - 1.5*IQR(x) | x > quantile(x, .75) + 1.5*IQR(x))
+}
+
+mood_summary <- mood_summary %>% mutate(
+  outlier = ifelse(find_outlier(sd_mood), ID, NA))
+mood_summary$outlier[6] <- 7
+mood_summary$outlier[27] <- 33
+
+mood_summary %>% ggplot(aes(x = "", y = sd_mood)) +
+  geom_boxplot(color = "firebrick") +
+  theme_classic(base_family = "Times") +
+  labs(title = "Boxplot of Standard Deviation of Mood",
+       y = "Standard Deviation of Mood",
+       x = "") + 
+  geom_text(aes(label=outlier), na.rm=TRUE, hjust=-1)
+```
+
+Although, it needs to be noted that individuals who have depression will show these mood fluctuations. If we assume that this sample is a representative sample, considering the $10-20\%$ prevalence, we should expect around $2-4$ individuals that are displaying such patterns. Hence, it is a question whether this should actually be considered as an "anomaly". 
+
+
+
+## Arousal & Valence
+```{r}
+# Quick Summary: Arousal
+summary(data$circumplex.arousal)
+table(data$circumplex.arousal)
+
+# Quick Summary: Valence
+summary(data$circumplex.valence)
+table(data$circumplex.valence)
+
+# Histograms
+hist_arousal <- data %>% filter(!is.na(circumplex.arousal)) %>% 
+  ggplot(aes(x = circumplex.arousal)) + 
+  geom_histogram(bins = 5, color = "black", fill = "deepskyblue2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Arousal", 
+       x = "Arousal", 
+       y = "Frequency")
+print(hist_arousal)
+
+hist_valence <- data %>% filter(!is.na(circumplex.valence)) %>% 
+  ggplot(aes(x = circumplex.valence)) + 
+  geom_histogram(bins = 5, color = "black", fill = "purple2") +
+  theme_classic(base_family = "Times") + 
+  labs(title = "Distribution of Valence", 
+       x = "Valence", 
+       y = "Frequency")
+print(hist_valence)
+```
+
+```{r}
+(hist_mood | hist_arousal | hist_valence) + 
+  patchwork::plot_layout(ncol = 3)
+```
+
+
+## Psychological x Hour
+```{r}
+hist_mood_hour <- data %>% filter(!is.na(mood)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "firebrick") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Mood Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+hist_arousal_hour <- data %>% filter(!is.na(circumplex.arousal)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "deepskyblue2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Arousal Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+hist_valence_hour <- data %>% filter(!is.na(circumplex.valence)) %>% 
+  ggplot(aes(x = hour)) + 
+  geom_histogram(bins = 24, 
+                 color = "black", 
+                 fill = "purple2") + 
+  theme_classic(base_family = "Times") + 
+  labs(title = "Frequency of Valence Observations Per Hour", 
+       x = "Hour",
+       y = "Frequency") + 
+  scale_x_continuous(breaks = 0:23)
+
+(hist_mood | hist_arousal | hist_valence | 
+ hist_mood_hour | hist_arousal_hour | hist_valence_hour) + 
+  patchwork::plot_layout(ncol = 3, nrow = 2)
+```
+
+
+
+
+## Activity
+```{r}
+activity_count_per_hour <- data %>%
+  filter(!is.na(activity)) %>%
+  group_by(hour) %>%
+  summarize(count = n())
+
+# Bar Plot
+activity_count_per_hour %>%
+  ggplot(aes(
+    x = hour, 
+    y = count)) + 
+  geom_col(color = "black", 
+           fill = "orange") + coord_cartesian(ylim=c(700,900))
+```
+
+
+```{r}
+activity_count_per_hour <- data %>%
+  filter(activity == 0) %>%
+  group_by(hour) %>%
+  summarize(count = n())
+
+# Bar Plot
+activity_count_per_hour %>%
+  ggplot(aes(
+    x = hour, 
+    y = count)) + 
+  geom_col(color = "black", 
+           fill = "orange")
+```
+
+
+```{r}
+save.image("R_code_1.RData")
+```
+
+
+
+
