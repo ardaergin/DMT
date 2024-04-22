@@ -5,7 +5,6 @@ library(ggplot2)
 library(patchwork)
 library(scales)
 library(lubridate)
-library(lme4)
 library(Matrix)
 # Time Series
 library(zoo)
@@ -22,6 +21,10 @@ library(mHMMbayes)
 library(mice)
 library(micemd)
 library(miceadds)
+
+# Modelling
+library(lme4)
+library(performance)
 
 
 

@@ -1,0 +1,122 @@
+---
+title: "Mood"
+author: "Arda Ergin"
+date: "2024-04-02"
+output: html_document
+---
+
+```{r}
+source("requirements.R")
+load("R_code_2.RData")
+```
+
+
+
+# The Analysis
+
+```{r}
+variables_network <- c("mood", "arousal", "valence", "activity", "call", "sms", "appCat.builtin", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", "appCat.office", "appCat.other", "appCat.social",)
+beep_new$
+data_normal <- read.csv("data_for_analysis.csv")
+
+variables_network <- c("mood", "arousal", "valence", "activity", "appCat.social")
+# "call", "sms", "appCat.communication", "appCat.entertainment", "appCat.finance", "appCat.game", 
+
+# multilevel vector autoregressive (mlVAR) model, 
+# also regarded as a special case of the dynamic structural equation model (DSEM)
+library(mlVAR)
+ml_mod <- mlVAR::mlVAR(
+  data_normal, 
+  vars = variables_network, 
+  idvar = "ID", 
+  dayvar = "date", 
+  estimator = "lmer", 
+  beepvar = "beepo", 
+  temporal = "correlated", 
+  contemporaneous = "correlated")
+```
+
+
+
+# Summary and Plotting
+
+```{r}
+load("ml_mod.RData")
+```
+
+```{r}
+summary(ml_mod)
+```
+
+```{r}
+# Temporal Network
+temp <- plot(
+  ml_mod, 
+  "temporal", 
+  title="Temporal Network",
+  layout = "circle", 
+  nonsig = "hide")
+
+# Contemporaneous Network
+plot(
+  ml_mod, 
+  "contemporaneous", 
+  title="Contemporaneous Network", 
+  rule = "and")
+
+# Between Network
+plot(
+  ml_mod, 
+  "between", 
+  title="Between-Subject Network", 
+  rule = "and")
+```
+
+
+
+# Further Plots (in progress)
+
+```{r}
+# Assume ml_mod is already fitted
+temp <- plot(ml_mod, 
+             plotType = "temporal", 
+             title = "Temporal Network",
+             layout = layout_in_circle)  # Using igraph's layout
+
+# Enhance plot aesthetics using igraph's options
+plot.igraph(temp,
+            main = "Temporal Network",
+            vertex.label.color = "darkblue",
+            vertex.label.cex = 0.8,  # Control label size
+            vertex.size = 20,
+            edge.arrow.size = 0.5,
+            layout = layout_in_circle(temp))
+
+temp <- mlVAR::plot(ml_mod, 
+                    plotType = "temporal", 
+                    title = "Temporal Network",
+                    layout = "circle",
+                    labels = TRUE,      # Ensure labels are shown if needed
+                    edge.color = "black",
+                    edge.width = 2,
+                    vsize = 5,
+                    color = "skyblue")
+
+
+qgraph::qgraph(adj_matrix,
+       layout = "circle",
+       labels = colnames(adj_matrix),  # Ensure you have column names for labels
+       title = "Temporal Network",
+       edge.color = "black",
+       edge.width = 2,
+       vsize = 5,
+       color = "skyblue") 
+```
+
+
+
+
+
+
+
+
