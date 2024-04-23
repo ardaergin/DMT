@@ -1,0 +1,88 @@
+---
+title: "Mood"
+author: "Arda Ergin"
+date: "2024-04-02"
+output: html_document
+---
+
+```{r}
+source("requirements.R")
+load("R_code_3.RData")
+```
+
+
+```{r}
+data <- data %>% select(-date)
+model <- lm(mood ~ .,data = data)
+summary(model)
+```
+
+```{r}
+plot(model, which = 1)
+shapiro.test()
+
+lmtest::dwtest(model)
+lmtest::bptest(model)
+car::vif(model)
+```
+
+```{r}
+# Assuming beep_new is your dataset
+variables <- names(data)
+
+# Exclude the dependent variable and random effects identifiers
+fixed_effects <- variables[!variables %in% c("mood", "ID", "observation_day", "beepo")]
+
+# Create the fixed effects part of the formula by collapsing the variable names into a formula string
+fixed_effects_formula <- paste(fixed_effects, collapse = " + ")
+
+# Create the full model formula
+model_formula <- as.formula(paste("mood ~", fixed_effects_formula, 
+                                  "+ (1|ID) + (1|ID:observation_day) + (1|beepo)"))
+
+# Fit the model
+full_model <- lmerTest::lmer(model_formula, data = data)
+anova(full_model)
+performance::r2(full_model)
+```
+
+
+
+
+
+```{r}
+
+# Check the model summary
+library(lme4)
+library(lmerTest)  # for model comparison if needed later
+
+# Assuming your full model is properly specified and saved as `current_model`
+current_model <- lmer(mood ~ . + (1|ID) + (1|ID:observation_day) + (1|beepo), data = beep_new)
+best_aic <- AIC(current_model)
+current_formula <- formula(current_model)  # Get the model's formula
+
+# Iterate over all variables except the specified ones
+for (variable in setdiff(names(beep_new), c("mood", "ID", "observation_day", "beepo"))) {
+    # Create a new formula by dropping the variable
+    new_formula <- as.formula(paste(deparse(current_formula), "- ", variable))
+    
+    # Fit the new model with the updated formula
+    reduced_model <- try(lmer(new_formula, data = beep_new), silent = TRUE)
+    
+    # Check if the new model fit without error and calculate AIC
+    if (!inherits(reduced_model, "try-error")) {
+        model_aic <- AIC(reduced_model)
+        if (model_aic < best_aic) {
+            best_aic <- model_aic
+            current_model <- reduced_model
+            current_formula <- new_formula  # Update the formula to the new best model
+            cat("Dropped:", variable, "New AIC:", model_aic, "\n")
+        }
+    }
+}
+
+# Final model after dropping variables
+summary(current_model)
+```
+
+

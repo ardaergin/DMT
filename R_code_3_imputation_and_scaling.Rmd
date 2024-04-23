@@ -1,0 +1,749 @@
+---
+title: "Mood"
+author: "Arda Ergin"
+date: "2024-04-02"
+output: html_document
+---
+
+```{r}
+source("requirements.R")
+load("R_code_2.RData")
+```
+
+We have two types of variables:       
+1) For the recorded variables, there are no missing values, hence we can log-transform and scale them without imputation.         
+2) for mood, arousal, valence, activity, we need to first impute them, then scale them, since they do have missing values.
+
+
+
+# Adding and Deleting some variables
+```{r}
+data <- data %>%
+  rowwise() %>%  # This ensures that the summing is done row by row
+  mutate(appCat_total = sum(c_across(starts_with("appCat.")), na.rm = TRUE)) %>%
+  ungroup()
+
+data <- data %>% mutate(
+  mood_cat = factor(
+    case_when(
+      mood < 7 ~ 0,
+      mood == 7 ~ 1,
+      mood > 7 ~ 2,
+      is.na(mood) ~ 3),
+  )
+)
+
+data <- data %>% subset(select= -c(
+  appCat.weather, 
+  appCat.utilities, 
+  appCat.unknown, 
+  appCat.other, 
+  night_physical_activity))
+```
+
+
+# Boxplots and Histograms
+```{r}
+for (i in names(data)) {
+  if (is.numeric(data[[i]])) {
+    boxplot(data[[i]], main = i)
+  }
+}
+
+```
+
+```{r}
+for (i in names(data)[-c(1:7, 10:11, 22:29)]) {
+  if (is.numeric(data[[i]])) {
+    hist(data[[i]], main = i)
+    hist(log1p(data[[i]]), main = i)
+  }
+}
+```
+
+
+```{r}
+boxplot_comm <- data %>% ggplot(aes(x = "", y = appCat.communication)) +
+  geom_boxplot(color = "forestgreen") +
+  theme_classic(base_family = "Times") +
+  labs(title = "Boxplot of App Category 'game'",
+       y = "appCat.game Scores",
+       x = "")
+
+hist_comm <- data %>% ggplot(aes(x = log1p(appCat.communication))) +
+  geom_histogram(color = "black", 
+                 fill = "forestgreen", bins = 30) +  # You can adjust the number of bins
+  theme_classic(base_family = "Times") +
+  labs(title = "Histogram of Log-transformed appCat.communication",
+       y = "Count",
+       x = "Log-transformed appCat.communication")
+
+boxplot_comm + hist_comm
+```
+
+
+
+# --------------
+
+# Train-test Split on ID
+
+```{r}
+participants <- unique(data$ID)
+set.seed(11042024) # Setting random seed with the date
+test_participants <- sample(participants, length(participants)* 1/5)
+test_participants
+
+data_TEST <- data %>% filter(ID %in% test_participants)
+unique(as.numeric(data_TEST$ID))
+
+`%not_in%` <- purrr::negate(`%in%`)
+data_TRAIN <- data %>% dplyr::filter(ID %not_in% test_participants)
+unique(as.numeric(data_TRAIN$ID))
+```
+
+```{r}
+# data_to_write_TRAIN <- fix_time(data_TRAIN_id)
+write.csv(data_TRAIN, "data/data_2_TRAIN_ID_aggregated_beep.csv")
+
+# data_to_write_TEST <- fix_time(data_TEST_id)
+write.csv(data_TEST, "data/data_2_TEST_ID_aggregated_beep.csv")
+```
+
+# --------------
+
+# TRAIN
+
+```{r}
+data <- data_TRAIN
+```
+
+
+## Variable Changes
+
+
+```{r}
+any(is.na(data$call))
+data <- data %>% mutate(
+  call_cat = factor(
+    case_when(
+      call == 0 ~ 0,
+      call == 1 ~ 1,
+      call > 1 ~ 2), 
+    ordered = TRUE
+  )
+)
+
+any(is.na(data$sms))
+data <- data %>% mutate(
+  sms_cat = factor(
+    case_when(
+      sms == 0 ~ 0,
+      sms == 1 ~ 1,
+      sms > 1 ~ 2), 
+    ordered = TRUE
+  )
+)
+```
+
+median scaling for night-time inactivity stuff directly, since they are continuous and the distributions look look okay.
+```{r}
+# MAX
+data <- data %>%
+  mutate(
+    mean = mean(MAX_inactivity_timediff, na.rm = TRUE),
+    sd = sd(MAX_inactivity_timediff, na.rm = TRUE),
+    night_MAX_cat = factor(
+      case_when(
+        MAX_inactivity_timediff < (mean - sd) ~ 0,
+        MAX_inactivity_timediff >= (mean - sd) & 
+          MAX_inactivity_timediff <= (mean) ~ 1,
+        MAX_inactivity_timediff > (mean) & 
+          MAX_inactivity_timediff <= (mean + sd) ~ 2,
+        MAX_inactivity_timediff > (mean + sd) ~ 3
+    ), ordered = T)
+  ) %>% select(-mean, -sd, -MAX_inactivity_timediff)
+
+# SUM
+data <- data %>%
+  mutate(
+    mean = mean(SUM_inactivity_timediff, na.rm = TRUE),
+    sd = sd(SUM_inactivity_timediff, na.rm = TRUE),
+    night_SUM_cat = factor(
+      case_when(
+        SUM_inactivity_timediff < (mean - sd) ~ 0,
+        SUM_inactivity_timediff >= (mean - sd) & 
+          SUM_inactivity_timediff <= (mean) ~ 1,
+        SUM_inactivity_timediff > (mean) & 
+          SUM_inactivity_timediff <= (mean + sd) ~ 2,
+        SUM_inactivity_timediff > (mean + sd) ~ 3
+    ), ordered = T)
+  ) %>% select(-mean, -sd, -SUM_inactivity_timediff)
+```
+
+```{r}
+data$screen_yj <- car::yjPower(data$screen, lambda = 0.2)
+data$appCat.communication_yj <- car::yjPower(data$appCat.communication, lambda = 0.1)
+data$night_screen_yj <- car::yjPower(data$night_screen, lambda = 0.2)
+data$night_appcat_yj <- car::yjPower(data$night_appcat_combined, lambda = 0.15)
+```
+
+
+
+## Log Transformation
+```{r}
+columns_to_log_transform <- c(
+  # "activity", "night_physical_activity",
+  "appCat.builtin",
+  "appCat.entertainment", 
+  "appCat.finance", 
+  "appCat.game",
+  "appCat.office", 
+  "appCat.social",
+  "appCat.travel"
+)
+
+# Log-transform and create binary indicator
+data <- data %>%
+  # mutate(across(all_of(columns_to_log_transform), ~log1p(.), .names = "log_{.col}")) %>%
+  mutate(across(all_of(columns_to_log_transform), ~as.integer(. > 0), .names = "binary_{.col}"))
+```
+
+
+```{r}
+data <- data %>% select(
+  -all_of(columns_to_log_transform),
+  -screen_yj, -appCat.communication_yj, -night_screen_yj, -night_appcat_yj)
+```
+
+
+
+## Imputation
+
+### MICE
+
+Checking NAs in all data
+```{r}
+for(col in colnames(data)){
+  print(sum(is.na(data[[col]])))
+}
+```
+
+
+```{r}
+#data <- data %>% mutate(
+#  was_na_mood = as.numeric(is.na(mood)),
+#)
+```
+
+
+```{r}
+# x <- data
+# devtools::install_github(repo = "amices/mice")
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["valence"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["valence", c(
+  "ID", "observation_day", "beepo", 
+  "arousal", "mood", 
+  "activity")] <- c(
+    -2, -2, -2, 
+    0, 0, 
+    0)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10,
+  printFlag = FALSE)
+data <- mice::complete(res.mice.md)
+
+
+
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["arousal"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["arousal", c(
+  "ID", "observation_day", "beepo", 
+  "mood", 
+  "activity")] <- c(
+    -2, -2, -2, 
+    0, 
+    0)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10,
+  printFlag = FALSE)
+data <- mice::complete(res.mice.md)
+
+
+
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["activity"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["activity", c(
+  "ID", "observation_day", "beepo", 
+  "mood")] <- c(
+    -2, -2, -2, 
+    0)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10,
+  printFlag = FALSE)
+data <- mice::complete(res.mice.md)
+
+
+
+
+
+impmethod <- character(ncol(data))
+names(impmethod) <- colnames(data)
+impmethod["mood"] <- "pmm"
+pm <- mice::make.predictorMatrix(data)
+pm["mood", c(
+  "ID", "observation_day", "beepo")] <- c(
+    -2, -2, -2)
+# run multiple imputations
+res.mice.md <- mice(
+  data, 
+  predictorMatrix = pm,
+  method=impmethod, 
+  maxit=10,
+  printFlag = FALSE)
+data <- mice::complete(res.mice.md)
+```
+
+
+```{r}
+imputed_data_TRAIN <- data
+```
+
+
+```{r}
+#write.csv(imputed_data,"data/data_3_imputed_aggregated_beeps_ALL.csv")
+```
+
+
+### Kalman
+```{r}
+#imputed <- imputeTS::na_kalman(aggregated_data)
+```
+
+```{r}
+#write.csv(imputed, "data_3_imputed_kalman.csv")
+```
+
+
+# --------------
+
+# TEST
+
+```{r}
+data <- data_TEST
+```
+
+
+## Variable Changes
+
+
+```{r}
+any(is.na(data$call))
+data <- data %>% mutate(
+  call_cat = factor(
+    case_when(
+      call == 0 ~ 0,
+      call == 1 ~ 1,
+      call > 1 ~ 2), 
+    ordered = TRUE
+  )
+)
+
+any(is.na(data$sms))
+data <- data %>% mutate(
+  sms_cat = factor(
+    case_when(
+      sms == 0 ~ 0,
+      sms == 1 ~ 1,
+      sms > 1 ~ 2), 
+    ordered = TRUE
+  )
+)
+```
+
+median scaling for night-time inactivity stuff directly, since they are continuous and the distributions look look okay.
+```{r}
+# MAX
+data <- data %>%
+  mutate(
+    mean = mean(MAX_inactivity_timediff, na.rm = TRUE),
+    sd = sd(MAX_inactivity_timediff, na.rm = TRUE),
+    night_MAX_cat = factor(
+      case_when(
+        MAX_inactivity_timediff < (mean - sd) ~ 0,
+        MAX_inactivity_timediff >= (mean - sd) & 
+          MAX_inactivity_timediff <= (mean) ~ 1,
+        MAX_inactivity_timediff > (mean) & 
+          MAX_inactivity_timediff <= (mean + sd) ~ 2,
+        MAX_inactivity_timediff > (mean + sd) ~ 3
+    ), ordered = T)
+  ) %>% select(-mean, -sd, -MAX_inactivity_timediff)
+
+# SUM
+data <- data %>%
+  mutate(
+    mean = mean(SUM_inactivity_timediff, na.rm = TRUE),
+    sd = sd(SUM_inactivity_timediff, na.rm = TRUE),
+    night_SUM_cat = factor(
+      case_when(
+        SUM_inactivity_timediff < (mean - sd) ~ 0,
+        SUM_inactivity_timediff >= (mean - sd) & 
+          SUM_inactivity_timediff <= (mean) ~ 1,
+        SUM_inactivity_timediff > (mean) & 
+          SUM_inactivity_timediff <= (mean + sd) ~ 2,
+        SUM_inactivity_timediff > (mean + sd) ~ 3
+    ), ordered = T)
+  ) %>% select(-mean, -sd, -SUM_inactivity_timediff)
+```
+
+```{r}
+data$screen_yj <- car::yjPower(data$screen, lambda = 0.2)
+data$appCat.communication_yj <- car::yjPower(data$appCat.communication, lambda = 0.1)
+data$night_screen_yj <- car::yjPower(data$night_screen, lambda = 0.2)
+data$night_appcat_yj <- car::yjPower(data$night_appcat_combined, lambda = 0.15)
+```
+
+
+
+## Log Transformation
+```{r}
+columns_to_log_transform <- c(
+  # "activity", "night_physical_activity",
+  "appCat.builtin",
+  "appCat.entertainment", 
+  "appCat.finance", 
+  "appCat.game",
+  "appCat.office", 
+  "appCat.social",
+  "appCat.travel"
+)
+
+# Log-transform and create binary indicator
+data <- data %>%
+  # mutate(across(all_of(columns_to_log_transform), ~log1p(.), .names = "log_{.col}")) %>%
+  mutate(across(all_of(columns_to_log_transform), ~as.integer(. > 0), .names = "binary_{.col}"))
+```
+
+
+```{r}
+data <- data %>% select(
+  -all_of(columns_to_log_transform),
+  -screen_yj, -appCat.communication_yj, -night_screen_yj, -night_appcat_yj)
+```
+
+
+
+## Imputation
+
+### MICE
+
+Checking NAs in all data
+```{r}
+for(col in colnames(data)){
+  print(sum(is.na(data[[col]])))
+}
+```
+
+
+```{r}
+mean_mood_train <- mean(imputed_data_TRAIN$mood, na.rm = TRUE)
+mean_valence_train <- mean(imputed_data_TRAIN$valence, na.rm = TRUE)
+mean_arousal_train <- mean(imputed_data_TRAIN$arousal, na.rm = TRUE)
+mean_activity_train <- mean(imputed_data_TRAIN$activity, na.rm = TRUE)
+
+data <- data %>% mutate(
+  mood = if_else(is.na(mood), mean_mood_train, mood),
+  valence = if_else(is.na(valence), mean_valence_train, valence),
+  arousal = if_else(is.na(arousal), mean_arousal_train, arousal),
+  activity = if_else(is.na(activity), mean_activity_train, activity),
+  )
+```
+
+
+
+```{r}
+imputed_data_TEST <- data
+```
+
+
+
+```{r}
+write.csv(imputed_data_TEST,"data/test.csv")
+write.csv(imputed_data_TRAIN,"data/train.csv")
+
+```
+
+
+
+
+
+# ----
+# Normalization
+
+```{r}
+data$arousal <- factor(data$arousal, ordered = T)
+data$arousal
+data$valence <- factor(data$valence, ordered = T)
+
+DAT <- imputed %>%
+  mutate_at(vars(arousal:appCat.weather), scale)
+```
+
+
+
+
+# ---------
+
+# Aggregate by Day
+```{r}
+aggregate_data_by_day <- imputed_data %>%
+  group_by(ID, date) %>%
+  summarise(
+    observation_day = max(observation_day),
+    mood = mean(mood, na.rm = TRUE),
+    arousal = mean(arousal, na.rm = TRUE),
+    valence = mean(valence, na.rm = TRUE),
+    activity = mean(activity, na.rm = TRUE),
+    screen = sum(screen, na.rm = TRUE),
+    call = sum(call, na.rm = TRUE),
+    sms = sum(sms, na.rm = TRUE),
+    appCat.builtin = sum(appCat.builtin, na.rm = TRUE),
+    appCat.communication = sum(appCat.communication, na.rm = TRUE),
+    appCat.entertainment = sum(appCat.entertainment, na.rm = TRUE),
+    appCat.finance = sum(appCat.finance, na.rm = TRUE),
+    appCat.game = sum(appCat.game, na.rm = TRUE),
+    appCat.office = sum(appCat.office, na.rm = TRUE),
+    appCat.other = sum(appCat.other, na.rm = TRUE),
+    appCat.social = sum(appCat.social, na.rm = TRUE),
+    appCat.travel = sum(appCat.travel, na.rm = TRUE),
+    appCat.unknown = sum(appCat.unknown, na.rm = TRUE),
+    appCat.utilities = sum(appCat.utilities, na.rm = TRUE), 
+    appCat.weather = sum(appCat.weather, na.rm = TRUE), 
+    night_physical_activity = mean(night_physical_activity),
+    night_screen = mean(night_screen),
+    night_appcat_combined = mean(night_appcat_combined),
+    MAX_inactivity_timediff = mean(MAX_inactivity_timediff),
+    SUM_inactivity_timediff = mean(SUM_inactivity_timediff),
+    weekday = max(weekday),
+    week_of_year = max(week_of_year),
+    appCat_total = sum(
+      appCat.builtin,
+      appCat.communication,
+      appCat.entertainment,
+      appCat.finance,
+      appCat.game,
+      appCat.office,
+      appCat.other,
+      appCat.social,
+      appCat.travel,
+      appCat.unknown,
+      appCat.utilities,
+      appCat.weather),
+    was_na_mood = sum(was_na_mood),
+    was_na_arousal = sum(was_na_arousal),
+    was_na_valence = sum(was_na_valence),
+    was_na_activity = sum(was_na_activity),
+    was_na_night_activity = sum(was_na_night_activity),
+    across(starts_with("binary_"), ~ sum(.x, na.rm = TRUE)),
+    .groups = "drop")
+
+# colnames(aggregate_data_by_day)[1] = "id"
+# colnames(aggregate_data_by_day)[2] = "datetime"
+```
+
+```{r}
+# Calculating the Daily Average Mood
+aggregate_data_by_day <- aggregate_data_by_day %>%
+  group_by(ID) %>% mutate(mood_of_next_day = lead(mood))
+```
+
+
+```{r}
+library(zoo)
+
+# Assuming `data` is your dataframe, `date` is the column with date information,
+# `participant_id` is the column that identifies individual participants, and
+# `mood` is the column for which you want to calculate rolling averages.
+aggregate_data_by_day$ID
+# Make sure your data is sorted by participant and date
+aggregate_data_by_day <- aggregate_data_by_day[
+  order(aggregate_data_by_day$ID, aggregate_data_by_day$observation_day), ]
+
+# Calculate rolling averages for each participant
+aggregate_data_by_day$roll_mean_3 <- NA  # Initialize the column with NA values
+aggregate_data_by_day$roll_mean_7 <- NA  # Initialize the column with NA values
+
+unique_ids <- unique(aggregate_data_by_day$ID)
+
+for(id in unique_ids){
+  participant_data <- subset(aggregate_data_by_day, ID == id)
+  
+  # Calculate 3-day rolling average
+  # The align="right" parameter ensures that the rolling window includes the current day and the previous 2 days
+  roll_3 <- rollapply(participant_data$mood, width = 3, FUN = mean, align = "right", fill = NA)
+  
+  # Calculate 7-day rolling average
+  roll_7 <- rollapply(participant_data$mood, width = 7, FUN = mean, align = "right", fill = NA)
+  
+  # Assign the calculated values back to the appropriate rows in the original dataframe
+  aggregate_data_by_day$roll_mean_3[aggregate_data_by_day$ID == id] <- roll_3
+  aggregate_data_by_day$roll_mean_7[aggregate_data_by_day$ID == id] <- roll_7
+}
+
+# `data` now includes the rolling average columns: `roll_mean_3` and `roll_mean_7`
+
+```
+
+
+
+```{r}
+write.csv(aggregate_data_by_day,"data/data_4_aggregated_day_ALL.csv")
+```
+
+
+# Creating Mood Lags
+
+```{r}
+beep_new <- imputed_data_TRAIN
+```
+
+
+DAY:
+```{r}
+# Calculating the Daily Average Mood
+daily_moods <- beep_new %>%
+  group_by(ID, observation_day) %>%
+  summarise(daily_average_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
+
+# Join the daily averages back to the original data 
+# and then calculate the average mood for the next day
+beep_new <- beep_new %>%
+  left_join(daily_moods, by = c("ID", "observation_day")) %>% 
+  group_by(ID) %>% 
+  mutate(mood_of_yesterday = lag(daily_average_mood, n=5)) %>%
+  ungroup()
+```
+
+BEEP:
+```{r}
+beep_new <- beep_new %>% 
+  group_by(ID) %>% 
+  mutate(
+    mood_of_next_beep = lead(mood)
+)
+```
+
+```{r}
+
+# Assuming `data` is your dataframe, `date` is the column with date information,
+# `participant_id` is the column that identifies individual participants, and
+# `mood` is the column for which you want to calculate rolling averages.
+
+# Make sure your data is sorted by participant and date
+beep_new <- beep_new[
+  order(beep_new$ID, beep_new$observation_day, beep_new$beepo), ]
+
+# Calculate rolling averages for each participant
+beep_new$roll_mean_15 <- NA
+beep_new$roll_mean_45 <- NA  # Initialize the column with NA values
+
+
+unique_ids <- unique(beep_new$ID)
+
+for(id in unique_ids){
+  participant_data <- subset(beep_new, ID == id)
+  
+  # Calculate 3-day rolling average
+  # The align="right" parameter ensures that the rolling window includes the current day and the previous 2 days
+  #roll_3 <- rollapply(participant_data$mood, width = 3, FUN = mean, align = "right", fill = NA)
+  
+  # Calculate 7-day rolling average
+  roll_7 <- rollapply(participant_data$mood, width = 15, FUN = mean, align = "right", fill = NA)
+  
+  roll_15 <- rollapply(participant_data$mood, width = 45, FUN = mean, align = "right", fill = NA)
+  
+  # Assign the calculated values back to the appropriate rows in the original dataframe
+  #beep_new$roll_mean_3[beep_new$ID == id] <- roll_3
+  beep_new$roll_mean_15[beep_new$ID == id] <- roll_7
+  beep_new$roll_mean_45[beep_new$ID == id] <- roll_15
+}
+
+```
+
+
+```{r}
+beep_new <- beep_new %>%
+  group_by(ID) %>%
+  mutate(median_mood = median(mood, na.rm = TRUE)) %>%
+  ungroup()
+
+# Step 2: Create a new variable to categorize mood based on the median
+beep_new <- beep_new %>%
+  mutate(mood_category = case_when(
+    mood < median_mood ~ -1,
+    mood == median_mood ~ 0,
+    mood > median_mood ~ 1
+  ))
+
+```
+
+```{r}
+beep_new <- beep_new %>% 
+  group_by(ID) %>% 
+  mutate(
+    mood_of_next_beep = lead(mood_category)
+)
+```
+
+
+
+
+
+```{r}
+write.csv(beep_new, "data/b.csv")
+```
+
+
+```{r}
+write.csv(beep_new, "data/xxxxxxxx.csv")
+```
+
+
+
+Then aggregating the dataset based on beeps.
+```{r}
+# Example aggregation: Calculate the mean mood for each beep interval for each participant
+# You can change this to match the specific columns and summary statistics you need
+aggregated_data <- combined_data %>%
+  group_by(ID, beep_number) %>%
+  summarize(mean_mood = mean(mood, na.rm = TRUE), .groups = 'drop')
+
+```
+
+
+
+
+
+
+
